@@ -29,7 +29,7 @@ python3 apps/worker/scheduler.py     # 08:50 checks, 09:05 paper worker, 15:45 E
 ## Strategy
 One validated strategy is active: **`orb_retest30_cheapiv_v1`** (30-min ORB retest, bought only when option IV ≤
 GARCH forecast). Rules, evidence, risks and the live runbook: `docs/STRATEGY_AND_LIVE_RUNBOOK.md`.
-Strategies that failed real-option testing are in `archive/` (see `archive/README.md`).
+Strategies that failed testing (incl. order-flow scalping, S/R, EMA, ORB variants) were deleted; recoverable from git history (commit 8a0cab9 and earlier).
 
 ## Research / maintenance
 ```bash

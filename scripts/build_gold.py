@@ -2,8 +2,8 @@
 
     python scripts/build_gold.py features                         # daily vol/regime/event features (+ next session row)
     python scripts/build_gold.py iv --start 2021-01-01 --end 2026-11-09   # ATM IV history from real option candles
-(The ML meta-labeling study showed no out-of-sample edge, AUC ~0.5; its runner is archived:
- archive/scripts/research_suite.py. The pipeline itself stays in quant/machine_learning/.)
+(The ML meta-labeling study showed no out-of-sample edge, AUC ~0.5; its runner was removed and remains in
+ git history. The pipeline itself stays in quant/machine_learning/.)
 """
 import _bootstrap  # noqa: F401
 

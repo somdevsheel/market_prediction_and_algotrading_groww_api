@@ -19,8 +19,8 @@
 ## Active strategy backtest
 `scripts/backtest_strategy.py` generates ORB signals with `strategies/orb/orb_core.py` (same code as live), then
 the backtester applies the contract-level IV filter, the risk engine and real 1-minute option candles. The
-experiment suite (A–I), walk-forward/sensitivity runner and the EMA/ORB-video studies are archived in
-`archive/` together with their results.
+experiment suite (A–I), walk-forward/sensitivity runner, the EMA/ORB-video studies and the order-flow
+scalping engine were deleted on 2026-11-10 after failing (recoverable from git history (commit 8a0cab9 and earlier)).
 
 ## Metric definitions
 net P&L = Σ(gross − charges); ROI = net / capital; win rate = share of trades with net > 0; expectancy = net / trades;

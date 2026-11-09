@@ -1,5 +1,5 @@
 # Strategy registry + governance. Changing params/filters of a strategy REQUIRES bumping its version
-# (live approval is tied to the config hash). Retired/unprofitable strategies: archive/config/strategies_retired.yaml
+# (live approval is tied to the config hash). Retired strategies were deleted (see git history (commit 8a0cab9 and earlier)).
 # status: RESEARCH | BACKTESTED | OUT_OF_SAMPLE_VALIDATED | PAPER_TRADING | APPROVED_FOR_LIVE | RETIRED
 active_strategy: orb_retest30_cheapiv_v1
 

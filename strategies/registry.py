@@ -1,7 +1,7 @@
 """Strategy registry. A config entry has ``class`` (base logic), ``params`` and optional ``filters``.
 
 Strategy ids are unique; changing params or filters must bump ``version`` (governance hashes the config).
-Only the validated ORB family is active; retired strategy code lives in archive/strategies/.
+Only the validated ORB family is active; retired strategies were deleted (recoverable from git history (commit 8a0cab9 and earlier)).
 """
 from __future__ import annotations
 

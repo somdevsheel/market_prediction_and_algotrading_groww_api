@@ -122,7 +122,7 @@ class Backtester:
         self.strategy = build_strategy(sid, self.scfg, self.overrides, filter_overrides)
         if hasattr(getattr(self.strategy, "base", self.strategy), "exit_signal"):
             raise ValueError(f"{sid} uses signal-driven exits/reversals (EMA crossover); this generic backtester "
-                             "cannot simulate them (see archive/scripts/ema921_research.py).")
+                             "cannot simulate them.")
         self.filters = {**(self.scfg.get("filters") or {}), **(filter_overrides or {})}
         self.risk_cfg = {**self.risk_cfg, **(self.scfg.get("risk_overrides") or {})}
         self.interval = interval or getattr(self.strategy, "interval_minutes", 5)

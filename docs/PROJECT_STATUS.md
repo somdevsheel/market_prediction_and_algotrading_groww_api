@@ -20,7 +20,7 @@
 ## Active strategy (after cleanup, 2026-11-09)
 Only `orb_retest30_cheapiv_v1` is active: +₹44,810 on real options 2021–2026 (₹20k / ₹1,000 risk, conservative
 costs), PF 1.23, max DD −₹22,802, lost in 2024 and 2025. Every other strategy tested (A, B, C, D/E/H/I, ORB video
-setups, 9/21 EMA variants, ML meta-labeling) failed on real options and is archived in `archive/` with its results.
+setups, 9/21 EMA variants, ML meta-labeling) failed on real options and was deleted on 2026-11-10 (recoverable from git history (commit 8a0cab9 and earlier)).
 
 ## Spec deviations
 No Zerodha (excluded by the user) · SQLite instead of

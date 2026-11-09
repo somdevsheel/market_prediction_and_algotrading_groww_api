@@ -119,7 +119,7 @@ per trade. **Not recommended for live trading at ₹20k / ₹1,000.**
   - the range-size filter for the 60-min breakout does not generalise
   - the retest timing filter does
 
-Reports of the rejected studies: `archive/backtests/` (see `archive/README.md`).
+The rejected studies' code was deleted on 2026-11-10 (recoverable from git history (commit 8a0cab9 and earlier)); their results are summarised in the table above.
 
 ---
 
