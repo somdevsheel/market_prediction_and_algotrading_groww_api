@@ -10,8 +10,9 @@ strategy status is `APPROVED_FOR_LIVE`, and a same-day approval exists (`scripts
 # 1. Before 09:15 IST: refresh credentials (token expires ~06:00 daily) — edit .env, see .env.example
 python3 scripts/check_connection.py        # token, funds, lot size, next session, live blockers
 
-# 2. Start the dashboard (separate terminal)
-python3 -m uvicorn apps.api.main:app --host 127.0.0.1 --port 8000   # http://127.0.0.1:8000
+# 2. Start the dashboard (separate terminal) — React app served by FastAPI
+(cd apps/web && npm install && npm run build)                       # once, and after UI changes
+python3 -m uvicorn apps.api.main:app --host 127.0.0.1 --port 8100   # http://127.0.0.1:8100
 
 # 3. Start the worker (waits for the session, max 1 trade, squares off 15:15, exits)
 python3 scripts/run_trader.py              # paper
@@ -51,3 +52,8 @@ The dashboard can also launch backtests (Backtests tab) and compare runs.
 metrics, robustness · `apps/` worker engine, API, dashboard · `docs/` architecture and status.
 
 See `docs/PROJECT_STATUS.md` for what is done, what is not, and `docs/KNOWN_LIMITATIONS.md`.
+
+## Dashboard development
+`apps/web/` is a React 18 + TypeScript + Vite app (TradingView Lightweight Charts). For live-reload development run
+the API on :8100 and `cd apps/web && npm run dev` (http://localhost:5173, proxies `/api` to :8100). `npm run build`
+writes `apps/web/dist/`, which FastAPI serves at `/` (the old single-file dashboard remains only as a fallback).

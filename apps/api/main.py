@@ -26,7 +26,12 @@ CFG = load_config()
 app = FastAPI(title="Nifty Quant System", version="0.1.0")
 LEDGER = Ledger(resolve_path(CFG, "ledger_db"))
 KILL = KillSwitch(resolve_path(CFG, "kill_switch_file"))
-STATIC = PROJECT_ROOT / "apps" / "dashboard" / "index.html"
+STATIC = PROJECT_ROOT / "apps" / "dashboard" / "index.html"          # legacy fallback
+WEB_DIST = PROJECT_ROOT / "apps" / "web" / "dist"                       # React build (cd apps/web && npm run build)
+if (WEB_DIST / "assets").exists():
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/assets", StaticFiles(directory=WEB_DIST / "assets"), name="assets")
 
 
 def _mode(mode: str | None) -> str:
@@ -56,7 +61,7 @@ def _clean(o):
 
 @app.get("/")
 def index():
-    return FileResponse(STATIC)
+    return FileResponse(WEB_DIST / "index.html" if (WEB_DIST / "index.html").exists() else STATIC)
 
 
 @app.get("/api/summary")
@@ -350,39 +355,18 @@ def run_backtest(body: dict = Body(...)):
 
     def work():
         try:
-            from backtesting.engine.backtester import Backtester
-            from ingestion.historical.datalake import DataLake
+            from datetime import date as _d
+
+            from backtesting.engine.orb_runner import run_orb_backtest
             from ingestion.providers.groww import GrowwProvider
 
             cfg = load_config()
-            r = cfg["risk"]
-            for k in ("capital", "risk_per_trade_max", "reward_risk"):
-                if body.get(k) not in (None, ""):
-                    r[k] = float(body[k])
-            if body.get("capital"):
-                r["max_premium_outlay"] = float(body["capital"])
-            cs = cfg["instruments"]["contract_selection"]
-            if body.get("itm_steps") not in (None, ""):
-                cs["itm_steps"] = int(body["itm_steps"])
-            if body.get("avoid_expiry_day") is not None:
-                cs["avoid_expiry_day"] = bool(body["avoid_expiry_day"])
-            lake = DataLake(resolve_path(cfg, "data_lake"))
-            fp = _gold("volatility", "daily_features.parquet")
-            feats = pd.read_parquet(fp) if fp.exists() else None
-            mlp = _gold("ml", "oos_predictions_breakout_vwap_v1.parquet")
-            probs = {}
-            if mlp.exists():
-                P = pd.read_parquet(mlp)
-                P = P[P.model == "logistic"]
-                probs = dict(zip(P.decision_ts, P.prob))
-            bt = Backtester(cfg, GrowwProvider(cfg["settings"]), lake, body.get("scenario", "base"),
-                            strategy_id=body.get("strategy_id"), experiment=f"ui-{body.get('strategy_id')}",
-                            features=feats, ml_probs=probs,
-                            charges_multiplier=float(body.get("charges_multiplier") or 1.0))
-            from datetime import date as _d
-
-            res = bt.run(_d.fromisoformat(body["start"]), _d.fromisoformat(body["end"]))
-            res.save(resolve_path(cfg, "backtests"))
+            num = lambda k, f=float: f(body[k]) if body.get(k) not in (None, "") else None  # noqa: E731
+            res = run_orb_backtest(cfg, GrowwProvider(cfg["settings"]), _d.fromisoformat(body["start"]),
+                                   _d.fromisoformat(body["end"]), body.get("scenario", "base"), body.get("strategy_id"),
+                                   capital=num("capital"), risk=num("risk_per_trade_max"),
+                                   square_off=body.get("square_off") or None, itm_steps=num("itm_steps", int),
+                                   charges_multiplier=num("charges_multiplier") or 1.0)
             JOBS[jid].update(status="done", run_id=res.run_id, metrics={k: res.metrics.get(k) for k in (
                 "trades", "net_pnl", "profit_factor", "win_rate_pct")})
         except Exception as e:  # noqa: BLE001

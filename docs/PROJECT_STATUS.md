@@ -13,7 +13,7 @@
 | 8 | Risk engine | ✅ | 12+ rejection scenarios tested; kill switch |
 | 9 | Paper trading | ✅ code · ⏳ live sessions | depth-walking partial fills; paper-vs-backtest comparison; first real session Wed 2026-11-11 |
 | 10 | Broker integration | ⚠ mocks only | no real order yet (needs funds + approval) |
-| 11 | Dashboard | ✅ | 8 screens incl. backtest launcher, run comparison, research report, strategy registry, alerts, data quality |
+| 11 | Dashboard | ✅ | React + TypeScript: Overview, Market, Strategy, P&L, Trades, Backtests (run + compare), Research, Health; light/dark |
 | 12 | Monitoring & recovery | ✅ | alerts (ledger + webhook), Prometheus /metrics, freshness/connectivity/stuck-order checks, token auto-refresh, verified backups, scheduler, restart reconciliation |
 | 13 | Live approval | 🔒 | governance requires OOS-validated + ≥20 profitable paper trades + config-hash match + same-day approval; funds ₹600 |
 
@@ -23,5 +23,5 @@ costs), PF 1.23, max DD −₹22,802, lost in 2024 and 2025. Every other strateg
 setups, 9/21 EMA variants, ML meta-labeling) failed on real options and is archived in `archive/` with its results.
 
 ## Spec deviations
-No Zerodha (excluded by the user) · static HTML dashboard instead of React/Next.js · SQLite instead of
+No Zerodha (excluded by the user) · SQLite instead of
 PostgreSQL · local backups with optional S3 · Python 3.10 · no Polars/APScheduler.

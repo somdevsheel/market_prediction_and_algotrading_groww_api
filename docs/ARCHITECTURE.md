@@ -24,7 +24,7 @@ Groww REST (growwapi 1.5.0)
   ├─ backtesting/                   event-driven Backtester on real option candles, costs, metrics, robustness,
   │                                  walk-forward selection, parameter/cost/data-quality sensitivity
   ├─ apps/worker/scheduler.py       daily jobs: pre-market check, start worker, EOD ingest + gold rebuild + backup
-  └─ apps/api + apps/dashboard      FastAPI + static dashboard (8 screens, backtest launcher, comparisons)
+  └─ apps/api + apps/web           FastAPI + React/TypeScript dashboard (8 screens, backtest launcher, comparisons)
 ```
 
 Design rules
@@ -35,7 +35,7 @@ Design rules
   any new entry; mismatches activate the kill switch.
 
 Deviations from the spec (deliberate, for the first iteration)
-* Dashboard is a single static HTML page (no React/Next.js build step).
+* Dashboard: React + Vite (no Next.js server needed; FastAPI serves the static build).
 * SQLite for metadata (PostgreSQL later), local Parquet (S3 later), REST polling (no WebSocket yet).
 * No Polars/APScheduler: pandas is sufficient at current data volumes; the scheduler is a small dependency-free
   loop with once-per-day job state in the ledger.
