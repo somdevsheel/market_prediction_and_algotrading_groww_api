@@ -92,6 +92,17 @@ There is **no fixed profit target**. Winners run until the stop or 15:15.
 
 ---
 
+### 2.6 Recent regime warning (added 2026-11-10)
+| Period | Lot size | Avg stop (option pts) | Stopped out | Win rate | Net (conservative) |
+|---|---|---|---|---|---|
+| 2021-07 → 2024-03 | 50 | 18.7 | 56 % | 41 % | +₹45,012 |
+| 2024-11 → 2025-12 | 75 | 12.4 | 75 % | 22 % | −₹12,740 |
+| 2026 | 65 | 14.3 | 75 % | 20 % | +₹15,434 (one +₹15,972 trade) |
+
+**2024–2026 total at ₹1,000 risk: −₹3,459** (−₹19,432 without its best trade). The ₹1,000 cap is too tight for
+current lot sizes. With a ₹3,000 stop, 2024–2026 was +₹12,075, which needs about ₹60k capital to keep risk near 5%
+per trade. **Not recommended for live trading at ₹20k / ₹1,000.**
+
 ## 3. How we got here (research log)
 
 | Strategy tested | Real-option result 2020/21–2026 | Verdict |

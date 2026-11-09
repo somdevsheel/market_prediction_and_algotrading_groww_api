@@ -20,6 +20,9 @@ export default function Strategy({ theme }: { theme: string }) {
     data: (detail.data?.equity || []).map((e: any) => ({ time: e.date, value: e.equity })) }], [detail.data]);
   const years = Object.entries(detail.data?.metrics?.by_year || {}).map(([y, v]: any) => ({ year: y, ...v }));
   const dm = detail.data?.metrics || {};
+  const recent = years.filter((y: any) => y.year >= "2024");
+  const recentNet = recent.reduce((a: number, y: any) => a + (y.net_pnl || 0), 0);
+  const recentTrades = recent.reduce((a: number, y: any) => a + (y.trades || 0), 0);
   const p = active?.params || {};
   const tones: Record<string, "ok" | "warn" | "bad" | ""> = { APPROVED_FOR_LIVE: "ok", PAPER_TRADING: "warn", BACKTESTED: "warn", RESEARCH: "", RETIRED: "bad" };
 
@@ -60,7 +63,15 @@ export default function Strategy({ theme }: { theme: string }) {
                       <Stat k="Profit factor" v={num(best.profit_factor, 2)} />
                       <Stat k="Max drawdown" v={inr(best.max_drawdown)} tone={tone(best.max_drawdown)} />
                       <Stat k="Out-of-sample (last 30%)" v={inr(best.oos_net)} tone={tone(best.oos_net)} />
+                      <Stat k="Since 2024 (recent regime)" v={inr(recentNet)} tone={tone(recentNet)} s={`${recentTrades} trades · lot 75/65 era`} />
                     </div>
+                    {recentNet <= 0 && (
+                      <div className="banner bad" style={{ marginTop: 12 }}>
+                        Not profitable since 2024 at this risk setting. With NIFTY lot 75/65, a ₹1,000 risk cap leaves only ~12–14
+                        option points of stop (≈12% of premium), so ~75% of trades are stopped out by noise (vs 56% in the lot-50 era,
+                        which produced nearly all the profit). A wider stop (~₹3,000/trade) was positive in 2024–26 but needs ~₹60k
+                        capital to keep risk near 5% per trade. Test it in Backtests → “Max risk / trade”.
+                      </div>)}
                     <h2 style={{ margin: "18px 0 10px", fontSize: 13, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6 }}>Risk : reward</h2>
                     <div className="grid">
                       <Stat k="Payoff ratio (avg win ÷ avg loss)" v={dm.payoff_ratio ? `${num(dm.payoff_ratio, 2)} : 1` : "—"} s={`avg win ${inr(dm.avg_win)} · avg loss ${inr(dm.avg_loss)}`} />

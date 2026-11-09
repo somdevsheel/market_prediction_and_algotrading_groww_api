@@ -11,7 +11,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 export default function Backtests({ theme }: { theme: string }) {
   const list = usePoll(() => api.get("/api/backtests"));
   const st = usePoll(() => api.get("/api/strategies"));
-  const [form, setForm] = useState({ start: "2024-01-01", end: today(), scenario: "conservative", capital: "20000",
+  const [form, setForm] = useState({ start: "2021-01-01", end: today(), scenario: "conservative", capital: "20000",
     risk_per_trade_max: "1000", charges_multiplier: "1", itm_steps: "1", square_off: "15:15", reward_risk: "none" });
   const [customRR, setCustomRR] = useState("2.5");
   const [sweep, setSweep] = useState(false);

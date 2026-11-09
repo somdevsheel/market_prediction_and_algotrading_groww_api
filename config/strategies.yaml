@@ -9,6 +9,9 @@ strategies:
     # 2026-11-09 backtest 2021-01-01..2026-11-06, real 1-minute option candles, Rs 20k / Rs 1,000 cap, 15:15 exit:
     # 277 trades, net +44,810 (conservative costs), PF 1.23, maxDD -22,802; lost in 2024 and 2025.
     # Found after testing several variants (selection bias) -> must prove itself in paper/live with 1 lot.
+    # 2026-11-10 finding: profit came from 2021-23 (lot 50, ~19-pt stop). Since 2024 (lot 75/65, Rs 1,000 cap ->
+    # ~12-14-pt stop, 75% stopped out) it is -3,459 (conservative). A Rs 3,000 stop was +12,075 in 2024-26 but needs
+    # ~Rs 60k capital. NOT recommended live at Rs 20k / Rs 1,000.
     # Reproduce: python3 scripts/backtest_strategy.py
     status: BACKTESTED
     version: "1.0.0"
