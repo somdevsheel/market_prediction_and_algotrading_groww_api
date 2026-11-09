@@ -1,0 +1,22 @@
+# Defaults + small, pre-declared grids (sensitivity / walk-forward). Grids are NOT tuned on the test period.
+ofi:
+  default: {window: 5, entry_z: 2.0, persistence: 2, min_volume_pctile: 30}
+  grid: {window: [3, 5, 10], entry_z: [1.5, 2.0, 2.5], persistence: [1, 2]}
+microprice:
+  default: {horizon_s: 5, entry_ticks: 0.5}
+  note: requires L2 bid/ask quantities -> no historical data; run on recorded snapshots only
+volume_delta:
+  default: {window: 10, entry_z: 2.0, require_accel: true, min_volume_pctile: 30}
+  grid: {window: [5, 10, 20], entry_z: [1.5, 2.0, 2.5], require_accel: [true, false]}
+vwap_momentum:
+  default: {dev_z: 1.0, slope_bars: 10, vol_mult: 1.2, adx_min: 20}
+  grid: {dev_z: [0.5, 1.0, 1.5], vol_mult: [1.0, 1.2, 1.5], adx_min: [15, 20, 25]}
+vwap_mean_reversion:
+  default: {entry_z: 2.0, adx_max: 20, exit_at_vwap: true}
+  grid: {entry_z: [1.5, 2.0, 2.5, 3.0], adx_max: [15, 20, 25]}
+hybrid:
+  default: {threshold_quantile: 0.97, horizon: 5, regime_thresholds: false}
+  grid: {threshold_quantile: [0.95, 0.97, 0.99], regime_thresholds: [false, true]}
+baselines:
+  vwap_cross: {}
+  momentum: {lookback: 15, min_move_atr: 1.0}
