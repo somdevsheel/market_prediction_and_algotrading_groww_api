@@ -1,0 +1,13 @@
+[Unit]
+Description=Nifty quant scheduler (pre-market checks, live/paper worker, EOD data + backup)
+After=network-online.target
+
+[Service]
+WorkingDirectory=/home/somdevsheel/Algo Trading Strategies/Nifty Algo Trading Using Groww API
+ExecStart=/usr/bin/python3 /home/somdevsheel/Algo Trading Strategies/Nifty Algo Trading Using Groww API/apps/worker/scheduler.py --mode live
+Restart=on-failure
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

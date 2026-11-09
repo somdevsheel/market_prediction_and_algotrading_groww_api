@@ -49,7 +49,8 @@ def round_tick(x: float, tick: float = 0.05) -> float:
 
 
 def live_approved(cfg: dict, today: date, strategy_status: str) -> tuple[bool, str]:
-    """Live trading needs: mode=live, strategy APPROVED_FOR_LIVE, and an approval file dated today."""
+    """Live trading needs: mode=live, strategy APPROVED_FOR_LIVE, and an owner approval covering today
+    (single day, or a standing approval with ``valid_until``; revoke any time with scripts/approve_live.py --revoke)."""
     if cfg["settings"].get("mode") != "live":
         return False, "settings.mode is not live"
     if strategy_status != "APPROVED_FOR_LIVE":
@@ -61,9 +62,15 @@ def live_approved(cfg: dict, today: date, strategy_status: str) -> tuple[bool, s
         a = json.loads(p.read_text())
     except Exception:
         return False, "approval file unreadable"
-    if a.get("date") != today.isoformat():
-        return False, f"approval is for {a.get('date')}, not today"
-    return True, "approved"
+    start, until = a.get("date"), a.get("valid_until") or a.get("date")
+    if not start or not (start <= today.isoformat() <= until):
+        return False, f"approval covers {start}..{until}, not {today}"
+    from governance.registry import config_hash
+
+    sid = cfg["strategies"]["active_strategy"]
+    if a.get("config_hash") and a["config_hash"] != config_hash(cfg["strategies"]["strategies"][sid]):
+        return False, "strategy config changed after the live approval was given"
+    return True, f"approved until {until}"
 
 
 class TradingEngine:

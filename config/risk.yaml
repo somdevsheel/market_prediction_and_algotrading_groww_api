@@ -13,3 +13,4 @@ allow_averaging: false
 max_quote_age_seconds: 20
 charges_buffer_pct: 0.0        # extra safety margin on charges estimate
 slippage_estimate_ticks: 2     # used in planned-loss calculation
+min_live_funds: 15000          # unattended live start requires at least this option-buy balance

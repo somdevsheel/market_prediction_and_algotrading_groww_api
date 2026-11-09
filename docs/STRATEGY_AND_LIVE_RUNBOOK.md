@@ -170,6 +170,27 @@ python3 scripts/promote_strategy.py --strategy orb_retest30_cheapiv_v1 --to APPR
 
 ---
 
+### 4.6 Fully automated live trading (no daily commands)
+One-time setup:
+1. **TOTP auto-login.** On Groww → Cloud API Keys, create a **TOTP** key. Put both values in `.env`:
+   `GROWW_API_KEY=<TOTP token>` and `GROWW_TOTP_SECRET=<base32 secret from the QR>`. The system then logs itself in
+   every morning, and `check_connection.py` stops warning about daily tokens.
+2. **Funds** ≥ `risk.min_live_funds` (₹15,000 default; raise it if you widen the stop, see §2.6).
+3. **Smoke test** passed once during market hours: `python3 scripts/live_smoke_test.py`.
+4. **Governance + mode:** `promote_strategy.py … --to APPROVED_FOR_LIVE` (after final risk settings), and set
+   `mode: live` in `config/settings.yaml`.
+5. **Standing approval:** `python3 scripts/approve_live.py --days 10` (max 20 trading days, voided by any strategy change).
+6. **Start automation:** install the services in `deploy/README.md`, or run `python3 apps/worker/scheduler.py --mode live`.
+
+Every trading morning the scheduler then:
+- **08:50:** runs the connection check.
+- **09:05:** runs the live gate (approval, kill switch, smoke test, login, funds, reconciliation) and starts the
+  bot **LIVE**. If any check fails, it starts **PAPER** and sends a `LIVE_GATE_FAILED` alert.
+- **15:45:** refreshes data, IV and features, then makes a verified backup.
+
+Stop automation at any time with `python3 scripts/approve_live.py --revoke` (next morning runs paper),
+`python3 scripts/kill.py --on "stop"` (immediate), or `systemctl --user stop nifty-scheduler`.
+
 ## 5. Risks and limitations (read before trading)
 
 1. **Selection bias.** This strategy was found after testing several setups and filters and keeping the best one. Expect live results to be weaker than the backtest.

@@ -38,7 +38,8 @@ def run(cmd: list[str], timeout: int = 7200) -> tuple[int, str]:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--mode", default="paper", choices=["paper", "live"])
+    ap.add_argument("--mode", default="paper", choices=["paper", "live"],
+                    help="live = start LIVE each morning only if monitoring/live_gate.py passes, else paper + alert")
     a = ap.parse_args()
     cfg = load_config()
     setup_logging(resolve_path(cfg, "logs"))
@@ -62,9 +63,30 @@ def main() -> int:
 
     def start_worker():
         nonlocal worker
+        mode = a.mode
+        if mode == "live":
+            from monitoring.live_gate import live_gate
+            from risk.kill_switch import KillSwitch
+
+            def funds():
+                from execution.groww_adapter import GrowwBroker
+                from ingestion.providers.groww import GrowwProvider
+
+                c = load_config()
+                return GrowwBroker(GrowwProvider(c["settings"]).client, c["settings"]).get_available_funds()
+
+            from core.secrets import obtain_access_token
+
+            ok, problems = live_gate(load_config(), datetime.now(IST).date(), token_fn=obtain_access_token,
+                                     funds_fn=funds, ledger=led, kill=KillSwitch(resolve_path(cfg, "kill_switch_file")))
+            if not ok:
+                alerts.alert("CRITICAL", "LIVE_GATE_FAILED", "Live NOT started, running PAPER today: " + " | ".join(problems))
+                mode = "paper"
+            else:
+                alerts.alert("WARNING", "LIVE_STARTED", "All live checks passed; starting LIVE trading")
         if worker is None or worker.poll() is not None:
-            worker = subprocess.Popen([PY, "scripts/run_trader.py", "--mode", a.mode], cwd=PROJECT_ROOT)
-        return 0, f"worker pid {worker.pid}"
+            worker = subprocess.Popen([PY, "scripts/run_trader.py", "--mode", mode], cwd=PROJECT_ROOT)
+        return 0, f"worker pid {worker.pid} mode {mode}"
 
     def eod():
         today = datetime.now(IST).date()
