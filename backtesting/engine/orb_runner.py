@@ -22,7 +22,10 @@ from strategies.registry import build_strategy
 
 def run_orb_backtest(cfg: dict, provider, start: date, end: date, scenario: str = "base", strategy_id: str | None = None,
                      capital: float | None = None, risk: float | None = None, square_off: str | None = None,
-                     itm_steps: int | None = None, charges_multiplier: float = 1.0, save: bool = True) -> BacktestResult:
+                     itm_steps: int | None = None, charges_multiplier: float = 1.0, save: bool = True,
+                     reward_risk: float | None = None) -> BacktestResult:
+    """``reward_risk``: option-premium target = entry + reward_risk x stop distance. None/0 = no fixed target
+    (strategy default: winners run to the underlying stop or square-off)."""
     cfg = copy.deepcopy(cfg)
     sid = strategy_id or cfg["strategies"]["active_strategy"]
     scfg = cfg["strategies"]["strategies"][sid]
@@ -36,6 +39,8 @@ def run_orb_backtest(cfg: dict, provider, start: date, end: date, scenario: str 
         cfg["settings"]["session"]["square_off"] = square_off
     if itm_steps is not None:
         cfg["instruments"]["contract_selection"]["itm_steps"] = int(itm_steps)
+    if reward_risk:  # strategy-level risk_overrides take precedence in the Backtester, so set it there
+        scfg.setdefault("risk_overrides", {})["reward_risk"] = float(reward_risk)
     lake = DataLake(resolve_path(cfg, "data_lake"))
     fp = lake.root / "gold" / "volatility" / "daily_features.parquet"
     feats = pd.read_parquet(fp) if fp.exists() else None
@@ -56,7 +61,8 @@ def run_orb_backtest(cfg: dict, provider, start: date, end: date, scenario: str 
         sig = strat.evaluate(MarketContext(now=ent.entry_ts.to_pydatetime(), index_5m=day.iloc[:ent.entry_idx + 1], features=f))
         if sig:
             sigs.append((d, ent.entry_ts, sig, f, day[["timestamp", "high", "low", "close"]]))
-    bt = Backtester(cfg, provider, lake, scenario, strategy_id=sid, experiment=sid, interval=1, features=feats,
+    exp = sid if not reward_risk else f"{sid}_rr{float(reward_risk):g}"
+    bt = Backtester(cfg, provider, lake, scenario, strategy_id=sid, experiment=exp, interval=1, features=feats,
                     charges_multiplier=charges_multiplier)
     res = bt.run(start, end, precomputed=(sigs, sorted(days)))
     if save:

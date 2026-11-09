@@ -244,7 +244,8 @@ def backtests():
                     "oos_net": (rob.get("out_of_sample") or {}).get("net_pnl"),
                     "is_net": (rob.get("in_sample") or {}).get("net_pnl"),
                     "payoff_ratio": round(m["avg_win"] / -m["avg_loss"], 2) if m.get("avg_win") and m.get("avg_loss") else None,
-                    "avg_charges_per_trade": round(m["charges"] / m["trades"], 2) if m.get("trades") and m.get("charges") else None})
+                    "avg_charges_per_trade": round(m["charges"] / m["trades"], 2) if m.get("trades") and m.get("charges") else None,
+                    "rr_target": (lambda rr: None if rr is None or rr >= 20 else rr)((s["config"].get("risk") or {}).get("reward_risk"))})
     return _clean(out)
 
 
@@ -354,10 +355,13 @@ def strategies():
 
 @app.post("/api/backtests/run")
 def run_backtest(body: dict = Body(...)):
-    """Launch a backtest in a background thread. Body: strategy_id, start, end, scenario, capital,
-    risk_per_trade_max, reward_risk, itm_steps, avoid_expiry_day, charges_multiplier."""
+    """Launch backtest(s) in a background thread. Body: strategy_id, start, end, scenario, capital,
+    risk_per_trade_max, itm_steps, square_off, charges_multiplier, reward_risk (0/None = no fixed target),
+    rr_sweep (list of reward_risk values -> one run each, for side-by-side comparison)."""
     jid = _uuid.uuid4().hex[:8]
-    JOBS[jid] = {"status": "running", "started": datetime.now(IST).isoformat(), "request": body}
+    sweep = body.get("rr_sweep") or []
+    JOBS[jid] = {"status": "running", "started": datetime.now(IST).isoformat(), "request": body,
+                 "progress": f"0/{len(sweep) or 1}"}
 
     def work():
         try:
@@ -368,13 +372,19 @@ def run_backtest(body: dict = Body(...)):
 
             cfg = load_config()
             num = lambda k, f=float: f(body[k]) if body.get(k) not in (None, "") else None  # noqa: E731
-            res = run_orb_backtest(cfg, GrowwProvider(cfg["settings"]), _d.fromisoformat(body["start"]),
-                                   _d.fromisoformat(body["end"]), body.get("scenario", "base"), body.get("strategy_id"),
-                                   capital=num("capital"), risk=num("risk_per_trade_max"),
-                                   square_off=body.get("square_off") or None, itm_steps=num("itm_steps", int),
-                                   charges_multiplier=num("charges_multiplier") or 1.0)
-            JOBS[jid].update(status="done", run_id=res.run_id, metrics={k: res.metrics.get(k) for k in (
-                "trades", "net_pnl", "profit_factor", "win_rate_pct")})
+            provider = GrowwProvider(cfg["settings"])
+            rrs = [float(x) if x not in (None, "", 0, "0", "none") else None for x in sweep] or [num("reward_risk")]
+            runs = []
+            for i, rr in enumerate(rrs):
+                res = run_orb_backtest(cfg, provider, _d.fromisoformat(body["start"]), _d.fromisoformat(body["end"]),
+                                       body.get("scenario", "base"), body.get("strategy_id"),
+                                       capital=num("capital"), risk=num("risk_per_trade_max"),
+                                       square_off=body.get("square_off") or None, itm_steps=num("itm_steps", int),
+                                       charges_multiplier=num("charges_multiplier") or 1.0, reward_risk=rr or None)
+                runs.append({"run_id": res.run_id, "reward_risk": rr, **{k: res.metrics.get(k) for k in (
+                    "trades", "net_pnl", "profit_factor", "win_rate_pct")}})
+                JOBS[jid]["progress"] = f"{i + 1}/{len(rrs)}"
+            JOBS[jid].update(status="done", runs=runs, run_id=runs[-1]["run_id"], metrics=runs[-1])
         except Exception as e:  # noqa: BLE001
             JOBS[jid].update(status="failed", error=f"{type(e).__name__}: {e}"[:500])
 

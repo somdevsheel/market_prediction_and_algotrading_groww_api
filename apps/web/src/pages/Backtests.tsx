@@ -12,7 +12,10 @@ export default function Backtests({ theme }: { theme: string }) {
   const list = usePoll(() => api.get("/api/backtests"));
   const st = usePoll(() => api.get("/api/strategies"));
   const [form, setForm] = useState({ start: "2024-01-01", end: today(), scenario: "conservative", capital: "20000",
-    risk_per_trade_max: "1000", charges_multiplier: "1", itm_steps: "1", square_off: "15:15" });
+    risk_per_trade_max: "1000", charges_multiplier: "1", itm_steps: "1", square_off: "15:15", reward_risk: "none" });
+  const [customRR, setCustomRR] = useState("2.5");
+  const [sweep, setSweep] = useState(false);
+  const SWEEP = ["none", "1", "1.5", "2", "3"];
   const [job, setJob] = useState<{ id?: string; status?: string; msg?: string }>({});
   const [sel, setSel] = useState<string[]>([]);
   const [open, setOpen] = useState<string | null>(null);
@@ -21,23 +24,28 @@ export default function Backtests({ theme }: { theme: string }) {
   const active = (st.data || []).find((x: any) => x.active);
 
   const run = async () => {
-    setJob({ status: "running", msg: "Running… (loads real option candles; ~1–3 min, longer if new data must download)" });
+    const rr = form.reward_risk === "custom" ? customRR : form.reward_risk;
+    setJob({ status: "running", msg: sweep ? `Running R:R sweep ${SWEEP.map((x) => (x === "none" ? "none" : `1:${x}`)).join(", ")}…` : "Running… (loads real option candles; ~1–3 min, longer if new data must download)" });
     try {
-      const { job_id } = await api.post("/api/backtests/run", { ...form, strategy_id: active?.strategy_id });
+      const { job_id } = await api.post("/api/backtests/run", { ...form, strategy_id: active?.strategy_id,
+        reward_risk: rr === "none" ? null : rr, rr_sweep: sweep ? SWEEP : undefined });
       const poll = window.setInterval(async () => {
         const s = await api.get(`/api/jobs/${job_id}`);
-        if (s.status !== "running") {
-          window.clearInterval(poll);
-          setJob({ id: job_id, status: s.status, msg: s.status === "done" ? `Done: ${s.run_id} · net ${inr(s.metrics?.net_pnl)} · PF ${num(s.metrics?.profit_factor)}` : `Failed: ${s.error}` });
-          list.reload();
-          if (s.run_id) setOpen(s.run_id);
-        }
+        if (s.status === "running") { setJob((j) => ({ ...j, msg: `Running… ${s.progress || ""}` })); return; }
+        window.clearInterval(poll);
+        const rrLabel = (x: number | null) => (x ? `1:${x}` : "no target");
+        setJob({ id: job_id, status: s.status, msg: s.status !== "done" ? `Failed: ${s.error}`
+          : (s.runs || []).map((r: any) => `${rrLabel(r.reward_risk)} → ${inr(r.net_pnl)} (PF ${num(r.profit_factor)}, win ${pct(r.win_rate_pct)})`).join("  ·  ") });
+        list.reload();
+        if ((s.runs || []).length > 1) setSel(s.runs.map((r: any) => r.run_id).slice(-5));
+        else if (s.run_id) setOpen(s.run_id);
       }, 3000);
     } catch (e: any) { setJob({ status: "failed", msg: e.message }); }
   };
   const set = (k: string) => (e: any) => setForm({ ...form, [k]: e.target.value });
-  const toggle = (id: string) => setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id].slice(-4)));
-  const cmpSeries = useMemo(() => (cmp.data || []).map((c: any, i: number) => ({ name: `${c.scenario}`, color: ["--accent", "--pos", "--warn", "--neg"][i % 4],
+  const toggle = (id: string) => setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id].slice(-5)));
+  const rrOf = (exp: string) => { const m = /_rr([\d.]+)/.exec(exp || ""); return m ? `1:${m[1]}` : "no target"; };
+  const cmpSeries = useMemo(() => (cmp.data || []).map((c: any, i: number) => ({ name: `${rrOf(c.experiment)} · ${c.scenario}`, color: ["--accent", "--pos", "--warn", "--neg", "--muted"][i % 5],
     data: (c.equity || []).map((e: any) => ({ time: e.date, value: e.equity })) })), [cmp.data]);
   const dEq = useMemo(() => [{ name: "Equity", type: "area" as const, color: "--accent", data: (detail.data?.equity || []).map((e: any) => ({ time: e.date, value: e.equity })) }], [detail.data]);
   const m = detail.data?.metrics || {};
@@ -54,6 +62,15 @@ export default function Backtests({ theme }: { theme: string }) {
           <label>Charges ×<input value={form.charges_multiplier} onChange={set("charges_multiplier")} size={3} /></label>
           <label>ITM steps<input value={form.itm_steps} onChange={set("itm_steps")} size={2} /></label>
           <label>Square-off<input value={form.square_off} onChange={set("square_off")} size={5} /></label>
+          <label title="Profit target on the option premium = entry + R:R × stop distance (1R = the risk-budget stop)">Target (risk : reward)
+            <select value={form.reward_risk} onChange={set("reward_risk")} disabled={sweep}>
+              <option value="none">no fixed target (strategy default)</option>
+              <option value="1">1 : 1</option><option value="1.5">1 : 1.5</option><option value="2">1 : 2</option>
+              <option value="3">1 : 3</option><option value="4">1 : 4</option><option value="custom">custom…</option>
+            </select></label>
+          {form.reward_risk === "custom" && !sweep && <label>Reward (R)<input value={customRR} onChange={(e) => setCustomRR(e.target.value)} size={4} /></label>}
+          <label style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingBottom: 8 }} title="Runs no-target, 1:1, 1:1.5, 1:2 and 1:3 and opens the comparison">
+            <input type="checkbox" checked={sweep} onChange={(e) => setSweep(e.target.checked)} /> R:R sweep</label>
           <button className="btn primary" disabled={job.status === "running"} onClick={run}>Run</button>
         </div>
         {job.msg && <div className={`banner ${job.status === "failed" ? "bad" : ""}`} style={{ marginTop: 12 }}>{job.msg}</div>}
@@ -61,12 +78,13 @@ export default function Backtests({ theme }: { theme: string }) {
       </Card>
 
       <div className="section">
-        <Card title="Runs" right={<span className="muted" style={{ fontSize: 12 }}>tick up to 4 to compare · click a row for details</span>}>
+        <Card title="Runs" right={<span className="muted" style={{ fontSize: 12 }}>tick up to 5 to compare · click a row for details</span>}>
           <State loading={list.loading && !list.data} error={list.error}>
             <DataTable rows={list.data} empty="No runs yet." onRowClick={(r) => setOpen(r.run_id)} maxHeight={360} cols={[
               { key: "sel", label: "", render: (r) => <input type="checkbox" checked={sel.includes(r.run_id)} onClick={(e) => e.stopPropagation()} onChange={() => toggle(r.run_id)} /> },
               { key: "run_id", label: "Run", render: (r) => <span className="mono">{r.run_id.slice(0, 15)}</span> },
               { key: "experiment", label: "Strategy" }, { key: "scenario", label: "Costs" },
+              { key: "rr_target", label: "Target", render: (r) => (r.rr_target ? `1:${r.rr_target}` : "none") },
               { key: "start", label: "From" }, { key: "end", label: "To" },
               { key: "trades", label: "Trades", num: true },
               { key: "net_pnl", label: "Net", num: true, render: (r) => <span className={tone(r.net_pnl)}>{inr(r.net_pnl)}</span> },
@@ -86,6 +104,7 @@ export default function Backtests({ theme }: { theme: string }) {
             <State loading={cmp.loading && !cmp.data} error={cmp.error}>
               <Chart series={cmpSeries} theme={theme} />
               <div className="section"><DataTable rows={(cmp.data || []).map((c: any) => ({ run: `${c.experiment} / ${c.scenario}`, ...c.metrics, is: c.in_sample?.net_pnl, oos: c.out_of_sample?.net_pnl }))} cols={[
+                { key: "rr", label: "Target", render: (r) => { const m = /_rr([\d.]+)/.exec(r.run); return m ? `1:${m[1]}` : "none"; } },
                 { key: "run", label: "Run" }, { key: "trades", label: "Trades", num: true },
                 { key: "net_pnl", label: "Net", num: true, render: (r) => inr(r.net_pnl) }, { key: "profit_factor", label: "PF", num: true },
                 { key: "win_rate_pct", label: "Win %", num: true }, { key: "max_drawdown", label: "Max DD", num: true, render: (r) => inr(r.max_drawdown) },

@@ -29,6 +29,8 @@ def main() -> int:
     ap.add_argument("--capital", type=float)
     ap.add_argument("--risk", type=float, help="max planned loss per trade (Rs)")
     ap.add_argument("--square-off", help="HH:MM override (default: config/settings.yaml)")
+    ap.add_argument("--rr", type=float, help="fixed reward:risk target on the option premium (e.g. 2 = 1:2). "
+                    "Omit for the strategy default (no fixed target)")
     a = ap.parse_args()
     cfg = load_config()
     setup_logging(resolve_path(cfg, "logs"))
@@ -46,7 +48,7 @@ def main() -> int:
     provider = GrowwProvider(cfg["settings"])
     s, e = date.fromisoformat(a.start), date.fromisoformat(a.end)
     for scn in a.scenarios.split(","):
-        res = run_orb_backtest(cfg, provider, s, e, scn, sid)
+        res = run_orb_backtest(cfg, provider, s, e, scn, sid, reward_risk=a.rr)
         out = resolve_path(cfg, "backtests") / res.run_id
         m, r = res.metrics, res.robustness or {}
         print(f"\n[{scn}] -> {out.name}")
