@@ -1,0 +1,13 @@
+# State (ledger, kill switch, data lake, logs) lives on the host via volumes so restarts are safe.
+services:
+  api:
+    build: .
+    ports: ["127.0.0.1:8000:8000"]
+    env_file: .env
+    volumes: ["./state:/app/state", "./data_lake:/app/data_lake", "./data:/app/data", "./logs:/app/logs", "./config:/app/config"]
+  worker:
+    build: .
+    command: ["python", "scripts/run_trader.py", "--mode", "paper"]
+    env_file: .env
+    volumes: ["./state:/app/state", "./data_lake:/app/data_lake", "./logs:/app/logs", "./config:/app/config"]
+    restart: "no"

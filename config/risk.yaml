@@ -1,0 +1,15 @@
+capital: 20000                 # rupees allocated to this system (paper uses this as virtual capital)
+max_lots: 1
+max_trades_per_day: 1
+risk_per_trade_min: 500        # planned stop-loss budget (not a guarantee)
+risk_per_trade_max: 1000
+daily_loss_limit: 1500         # block new entries after this realised loss (net) today
+max_premium_outlay: 20000      # full premium is the worst-case loss for a long option
+min_stop_points: 4.0           # option premium points; tighter stops are noise
+reward_risk: 2.0               # option target = entry + reward_risk * stop distance
+allow_overnight: false
+allow_reentry: false
+allow_averaging: false
+max_quote_age_seconds: 20
+charges_buffer_pct: 0.0        # extra safety margin on charges estimate
+slippage_estimate_ticks: 2     # used in planned-loss calculation

@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nifty Quant Desk</title>
+<style>
+:root{--bg:#f6f7f9;--panel:#fff;--ink:#14181f;--muted:#5d6675;--line:#e2e5ea;--accent:#2457d6;--pos:#137a3d;--neg:#c0322b;--warn:#a86400;--chip:#eef1f6}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1216;--panel:#171b21;--ink:#e6e9ee;--muted:#98a1ad;--line:#272d36;--accent:#7aa2ff;--pos:#4cc07a;--neg:#ff6b61;--warn:#e0a640;--chip:#20262e}}
+:root[data-theme="dark"]{--bg:#0f1216;--panel:#171b21;--ink:#e6e9ee;--muted:#98a1ad;--line:#272d36;--accent:#7aa2ff;--pos:#4cc07a;--neg:#ff6b61;--warn:#e0a640;--chip:#20262e}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:2}
+header h1{font-size:16px;margin:0 8px 0 0}
+nav{display:flex;gap:4px;flex-wrap:wrap}
+nav button{background:none;border:0;color:var(--muted);padding:6px 10px;border-radius:6px;cursor:pointer;font:inherit}
+nav button.on{background:var(--chip);color:var(--ink);font-weight:600}
+.sp{flex:1}
+.chip{background:var(--chip);border-radius:999px;padding:3px 10px;font-size:12px}
+.chip.bad{color:var(--neg)} .chip.ok{color:var(--pos)}
+main{padding:16px;max-width:1280px;margin:0 auto}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px}
+.card .k{color:var(--muted);font-size:12px}.card .v{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}
+.pos{color:var(--pos)}.neg{color:var(--neg)}
+section{display:none}section.on{display:block}
+h2{font-size:15px;margin:20px 0 8px}
+.tw{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:13px}
+th,td{padding:6px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th{color:var(--muted);font-weight:500;position:sticky;top:0;background:var(--panel)}
+td:first-child,th:first-child{text-align:left}
+tr.click{cursor:pointer} tr.click:hover{background:var(--chip)}
+.chart{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px}
+.chart svg{width:100%;height:220px;display:block}
+.note{color:var(--muted);font-size:12px;margin:6px 0}
+button.act{background:var(--neg);color:#fff;border:0;border-radius:6px;padding:7px 12px;cursor:pointer;font:inherit}
+button.sec{background:var(--chip);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 10px;cursor:pointer;font:inherit}
+pre{white-space:pre-wrap;word-break:break-word;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px;font-size:12px;max-height:360px;overflow:auto}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:800px){.two{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Nifty Quant Desk</h1>
+  <nav id="nav"></nav>
+  <span class="sp"></span>
+  <label class="note" for="mode">Ledger view</label>
+  <select id="mode" class="sec" title="Which trade ledger to display. Does NOT change the trading mode."><option value="paper">paper trades</option><option value="live">live trades</option></select>
+  <span id="modeChip" class="chip"></span>
+  <span id="healthChip" class="chip"></span>
+  <button class="sec" id="themeBtn" title="Toggle light/dark">◐</button>
+</header>
+<main>
+<section id="overview">
+  <h2 style="margin-top:0">Real Groww account</h2>
+  <div class="grid" id="realAcct"></div>
+  <h2 id="simHead">Trading performance</h2>
+  <p class="note" id="acctNote"></p>
+  <div class="grid" id="kpis"></div>
+  <h2>Open position</h2><div id="pos" class="note">none</div>
+  <h2>Equity curve</h2><div class="chart"><svg id="eq"></svg></div>
+  <h2>Kill switch</h2>
+  <div id="killState" class="note"></div>
+  <button class="act" id="killBtn">Activate kill switch</button>
+  <button class="sec" id="resumeBtn">Resume trading</button>
+</section>
+<section id="pnl">
+  <div class="two"><div><h2>Equity</h2><div class="chart"><svg id="eq2"></svg></div></div>
+  <div><h2>Drawdown</h2><div class="chart"><svg id="dd"></svg></div></div></div>
+  <div class="two"><div><h2>Daily</h2><div class="tw"><table id="tDaily"></table></div></div>
+  <div><h2>Monthly / yearly</h2><div class="tw"><table id="tMonthly"></table></div><div class="tw" style="margin-top:8px"><table id="tYearly"></table></div></div></div>
+  <div class="two"><div><h2>CE vs PE</h2><div class="tw"><table id="tCEPE"></table></div></div>
+  <div><h2>By strategy</h2><div class="tw"><table id="tStrat"></table></div></div></div>
+</section>
+<section id="market">
+  <p class="note" id="mkTs"></p>
+  <div class="grid" id="mkKpis"></div>
+  <h2>Strategy state (last evaluation)</h2><pre id="mkReasons"></pre>
+  <h2>Last trade decision</h2><pre id="mkDecision"></pre>
+</section>
+<section id="research">
+  <div class="grid" id="hvKpis"></div>
+  <h2>Historical volatility (daily, %)</h2><div class="chart"><svg id="hvChart"></svg></div>
+  <p class="note">Lines: HV10, HV20, HV60.</p>
+  <h2>Next-session model forecasts (gold features, data through last close)</h2><div class="grid" id="fcKpis"></div>
+  <h2>Forecast realised vol vs implied vol (annualised %)</h2><div class="chart"><svg id="rvivChart"></svg></div>
+  <p class="note">Lines: GARCH forecast, EWMA forecast, ATM IV (previous close), HV20. RV−IV is a research signal only.</p>
+  <div class="two"><div><h2>HMM regime</h2><pre id="hmmInfo"></pre></div>
+  <div><h2>Volatility-model evaluation (out-of-sample QLIKE, lower = better)</h2><div class="tw"><table id="tVolEval"></table></div></div></div>
+  <h2>ML models (walk-forward, out-of-sample)</h2><div class="tw"><table id="tMl"></table></div>
+  <h2>IV term structure (live)</h2><button class="sec" id="loadTerm">Load term structure</button>
+  <div class="chart" style="margin-top:8px"><svg id="termChart"></svg></div><div class="tw"><table id="tTerm"></table></div>
+  <h2>GARCH family (fit on daily NIFTY returns in the data lake)</h2><div class="tw"><table id="tGarch"></table></div>
+  <h2>EWMA decay factors, out-of-sample</h2><div class="tw"><table id="tEwma"></table></div>
+  <h2>Option chain IV (live; needs valid token)</h2>
+  <input id="expiry" class="sec" placeholder="YYYY-MM-DD"> <button class="sec" id="loadChain">Load smile</button>
+  <div class="chart" style="margin-top:8px"><svg id="smile"></svg></div><pre id="chainInfo"></pre>
+</section>
+<section id="backtests">
+  <p class="note">Simulated fills on real historical option candles with modelled spread/slippage; not actual historical fills.</p>
+  <h2>Run a backtest</h2>
+  <div class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+    <label>Strategy<br><select id="btStrat" class="sec"></select></label>
+    <label>Start<br><input id="btStart" class="sec" value="2025-01-01" size="10"></label>
+    <label>End<br><input id="btEnd" class="sec" size="10"></label>
+    <label>Timeframe<br><select class="sec" disabled><option>5 minute (strategy native)</option></select></label>
+    <label>Cost scenario<br><select id="btScn" class="sec"><option>optimistic</option><option selected>base</option><option>conservative</option></select></label>
+    <label>Charges ×<br><input id="btCh" class="sec" value="1" size="3"></label>
+    <label>Capital ₹<br><input id="btCap" class="sec" value="20000" size="7"></label>
+    <label>Max risk/trade ₹<br><input id="btRisk" class="sec" value="1000" size="5"></label>
+    <label>Reward:risk<br><input id="btRR" class="sec" value="2" size="3"></label>
+    <label>ITM steps<br><input id="btItm" class="sec" value="1" size="2"></label>
+    <label><input type="checkbox" id="btAvoid" checked> avoid expiry day</label>
+    <button class="sec" id="btRun">Run</button><span id="btJob" class="note"></span>
+  </div>
+  <h2>Research suite report</h2><div id="repInfo" class="note"></div>
+  <div class="tw"><table id="tRep"></table></div>
+  <div class="two"><div><h2>Walk-forward (parameter selection on train, scored on next test window)</h2><div class="tw"><table id="tWF"></table></div></div>
+  <div><h2>Parameter / cost / data-quality sensitivity</h2><div class="tw"><table id="tSens"></table></div><div class="tw" style="margin-top:8px"><table id="tCost"></table></div><div class="tw" style="margin-top:8px"><table id="tDQ"></table></div></div></div>
+  <h2>All runs <button class="sec" id="cmpBtn">Compare selected</button></h2>
+  <div class="tw"><table id="tBt"></table></div>
+  <div id="cmpOut"></div>
+  <div id="btDetail"></div>
+</section>
+<section id="trades">
+  <p><a id="exportLink" href="#">Export trades CSV</a></p>
+  <h2>Trade book</h2><div class="tw"><table id="tTrades"></table></div>
+  <h2>Order history</h2><div class="tw"><table id="tOrders"></table></div>
+  <h2>Risk decisions</h2><div class="tw"><table id="tDecisions"></table></div>
+  <h2>Paper execution vs backtest assumptions</h2><pre id="pvb"></pre>
+</section>
+<section id="health">
+  <div class="grid" id="hKpis"></div>
+  <h2>Historical ingestion</h2><pre id="hIngest"></pre>
+  <h2>Data completeness &amp; quality</h2><div class="tw"><table id="tDQr"></table></div>
+  <h2>Alerts</h2><div class="tw"><table id="tAlerts"></table></div>
+  <h2>Latest errors</h2><div class="tw"><table id="tErrors"></table></div>
+  <p class="note">Prometheus metrics: <a href="/metrics">/metrics</a></p>
+</section>
+<section id="ema">
+  <div class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+    <label>Config (timeframe · start · cutoff)<br><select id="emaCfg" class="sec"></select></label>
+    <label>Mode<br><select id="emaMode" class="sec"><option>ITM5_BUY</option><option selected>ATM_BUY</option><option>ATM_SELL</option></select></label>
+    <label>Outcome<br><select id="emaOut" class="sec"><option value="all">all</option><option value="win">winners</option><option value="loss">losers</option></select></label>
+    <label>Direction<br><select id="emaDir" class="sec"><option value="all">all</option><option>BULLISH</option><option>BEARISH</option></select></label>
+    <label>Which cross<br><select id="emaCross" class="sec"><option value="0">all</option><option value="1">1st</option><option value="2">2nd</option><option value="3">3rd</option><option value="4">4th+</option></select></label>
+    <span class="note" id="emaState"></span>
+  </div>
+  <div class="grid" id="emaKpis" style="margin-top:10px"></div>
+  <h2>Mode comparison (this config)</h2><div class="tw"><table id="emaModes"></table></div>
+  <div class="two" style="grid-template-columns:minmax(260px,1fr) 2fr;margin-top:10px">
+    <div><h2>Trades <span class="note">(↑/↓ to navigate)</span></h2><div class="tw" style="max-height:520px;overflow:auto" id="emaListWrap" tabindex="0"><table id="emaList"></table></div></div>
+    <div><h2 id="emaChartTitle">Chart</h2>
+      <div class="card" id="emaMeta" style="display:flex;gap:14px;flex-wrap:wrap;font-size:13px"></div>
+      <div class="chart" style="margin-top:8px"><svg id="emaChart" style="height:340px"></svg></div>
+      <p class="note">Candles: NIFTY spot at the strategy timeframe · blue EMA 9 · amber EMA 21 · ▲/▼ entry · ✕ exit</p>
+      <h2>Cost card</h2><div class="tw"><table id="emaCost"></table></div></div>
+  </div>
+</section>
+<section id="strategies">
+  <p class="note">Governance: status changes need evidence (<code>python scripts/promote_strategy.py</code>). Approval for live is tied to the config hash; any change to params/filters voids it.</p>
+  <div class="tw"><table id="tStrats"></table></div><pre id="stratDetail"></pre>
+</section>
+</main>
+<script>
+const TABS=["overview","pnl","market","research","backtests","ema","strategies","trades","health"];
+const $=id=>document.getElementById(id);
+let mode="paper";try{mode=localStorage.getItem("nq-mode")||"paper"}catch(_){} $("mode").value=mode;
+$("mode").onchange=e=>{mode=e.target.value;try{localStorage.setItem("nq-mode",mode)}catch(_){};refresh()};
+let tab=(location.hash||"#overview").slice(1);
+function nav(){ $("nav").innerHTML=TABS.map(t=>`<button class="${t===tab?"on":""}" data-t="${t}">${t[0].toUpperCase()+t.slice(1)}</button>`).join("");
+  document.querySelectorAll("#nav button").forEach(b=>b.onclick=()=>{tab=b.dataset.t;location.hash=tab;nav();show()}); }
+function show(){TABS.forEach(t=>$(t).classList.toggle("on",t===tab));refresh()}
+const j=async u=>{const r=await fetch(u);if(!r.ok)throw new Error(u+" "+r.status);return r.json()};
+const fmt=(v,d=2)=>v==null||v===""?"–":(typeof v==="number"?v.toLocaleString("en-IN",{maximumFractionDigits:d,minimumFractionDigits:0}):v);
+const rs=v=>v==null?"–":`<span class="${v>0?"pos":v<0?"neg":""}">₹${fmt(v)}</span>`;
+const card=(k,v)=>`<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+function table(el,rows,cols,click){ if(!rows||!rows.length){$(el).innerHTML="<tr><td>No data</td></tr>";return}
+  cols=cols||Object.keys(rows[0]);
+  $(el).innerHTML="<tr>"+cols.map(c=>`<th>${c}</th>`).join("")+"</tr>"+rows.map((r,i)=>`<tr ${click?`class="click" data-i="${i}"`:""}>`+cols.map(c=>{let v=r[c];
+    if(/pnl|net$/.test(c)&&typeof v==="number")return `<td>${rs(v)}</td>`;return `<td>${typeof v==="object"&&v!==null?JSON.stringify(v):fmt(v)}</td>`}).join("")+"</tr>").join("");
+  if(click)$(el).querySelectorAll("tr.click").forEach(tr=>tr.onclick=()=>click(rows[+tr.dataset.i]));}
+function line(svgId,series,opt={}){const svg=$(svgId);const W=svg.clientWidth||600,H=220,P=36;
+  const all=series.flatMap(s=>s.pts.map(p=>p[1])).filter(v=>v!=null);if(!all.length){svg.innerHTML=`<text x="10" y="20" fill="currentColor" font-size="12">No data</text>`;return}
+  let lo=Math.min(...all),hi=Math.max(...all);if(lo===hi){lo-=1;hi+=1}const n=Math.max(...series.map(s=>s.pts.length));
+  const x=i=>P+(W-P-8)*(n<=1?0.5:i/(n-1)),y=v=>8+(H-P)*(1-(v-lo)/(hi-lo));
+  const css=getComputedStyle(document.documentElement);const cols=[css.getPropertyValue("--accent"),css.getPropertyValue("--pos"),css.getPropertyValue("--warn"),css.getPropertyValue("--neg")];
+  let g=`<g fill="${css.getPropertyValue("--muted")}" font-size="10">`;for(let k=0;k<=4;k++){const v=lo+(hi-lo)*k/4;g+=`<text x="2" y="${y(v)+3}">${fmt(v,0)}</text><line x1="${P}" x2="${W}" y1="${y(v)}" y2="${y(v)}" stroke="${css.getPropertyValue("--line")}"/>`}g+="</g>";
+  const lab=series[0].pts;if(lab.length){g+=`<text x="${P}" y="${H-6}" font-size="10" fill="${css.getPropertyValue("--muted")}">${lab[0][0]}</text><text x="${W-8}" y="${H-6}" font-size="10" text-anchor="end" fill="${css.getPropertyValue("--muted")}">${lab[lab.length-1][0]}</text>`}
+  series.forEach((s,si)=>{const pts=s.pts.map((p,i)=>p[1]==null?null:`${x(i)},${y(p[1])}`).filter(Boolean).join(" ");
+    g+=`<polyline fill="none" stroke="${s.color||cols[si%4]}" stroke-width="2" points="${pts}"/>`;
+    if(s.dots)s.pts.forEach((p,i)=>{if(p[1]!=null)g+=`<circle cx="${x(i)}" cy="${y(p[1])}" r="3" fill="${s.color||cols[si%4]}"><title>${p[0]}: ${fmt(p[1])}</title></circle>`})});
+  svg.innerHTML=g;}
+async function overview(){const s=await j(`/api/summary?mode=${mode}`);
+  $("modeChip").textContent="SYSTEM MODE: "+s.config_mode.toUpperCase();$("modeChip").className="chip "+(s.config_mode==="live"?"bad":"ok");
+  const virt=s.mode==="paper"?" (paper, virtual)":" (allocated, config)";
+  let b={};try{b=await j("/api/broker")}catch(e){b={ok:false,error:"API endpoint missing — restart the dashboard server"}}
+  $("acctNote").innerHTML=s.mode==="paper"?"<b>Paper mode:</b> capital, balance and P&amp;L below are simulated from <code>config/risk.yaml</code> and the paper-trade ledger. They are <b>not</b> your Groww money.":"<b>Viewing the LIVE trade ledger.</b> The system itself is in <b>"+s.config_mode.toUpperCase()+"</b> mode"+(s.config_mode==="live"?".":", so no live trades are placed and this view stays empty.")+" Capital is the allocation from <code>config/risk.yaml</code>; your real money is shown above.";
+  $("realAcct").innerHTML=[card("Groww option-buy balance (REAL)",b.ok?"₹"+fmt(b.option_buy_balance):"<span class='neg'>unavailable</span>"),card("Groww clear cash (REAL)",b.ok?"₹"+fmt(b.clear_cash):"–"),card("Real balance fetched",b.ok?b.fetched_at.slice(11,19):`<span style="font-size:13px">${(b.error||"–").slice(0,90)}</span>`)].join("");
+  $("kpis").innerHTML=[card("Total capital"+virt,"₹"+fmt(s.capital)),card("Available balance"+virt,"₹"+fmt(s.available_balance)),card("Current P&L",rs(s.current_pnl)),card("Today's P&L",rs(s.today_pnl)),card("Total realised P&L",rs(s.total_realized_pnl)),card("Total trades",fmt(s.total_trades)),card("Win rate",s.win_rate_pct==null?"–":fmt(s.win_rate_pct)+"%"),card("Profit factor",fmt(s.profit_factor)),card("ROI",s.roi_pct==null?"–":fmt(s.roi_pct)+"%"),card("Max drawdown",rs(s.max_drawdown)),card("System trading mode",s.config_mode.toUpperCase()),card("System health",s.health)].join("");
+  $("pos").innerHTML=s.position?`<pre>${JSON.stringify(s.position,null,1)}</pre>`:"No open position";
+  $("killState").textContent=s.kill_switch?`ACTIVE — ${s.kill_switch.reason} (${s.kill_switch.source}, ${s.kill_switch.at})`:"inactive";
+  const p=await j(`/api/pnl?mode=${mode}`);line("eq",[{pts:p.equity.map(e=>[e.date,e.equity]),dots:true}]);}
+async function pnl(){const p=await j(`/api/pnl?mode=${mode}`);
+  line("eq2",[{pts:p.equity.map(e=>[e.date,e.equity]),dots:true}]);line("dd",[{pts:p.equity.map(e=>[e.date,e.drawdown]),color:getComputedStyle(document.documentElement).getPropertyValue("--neg")}]);
+  table("tDaily",p.daily.slice().reverse());table("tMonthly",p.monthly);table("tYearly",p.yearly);
+  const obj=o=>Object.entries(o).map(([k,v])=>({key:k,...v}));table("tCEPE",obj(p.by_option_type));table("tStrat",obj(p.by_strategy));}
+async function market(){const m=await j("/api/market");const k=m.market||{};const ps=m.position||{};const d=m.last_decision||{};
+  $("mkTs").textContent=m.updated_at?"Updated "+m.updated_at+" (written by the worker at each 5-min candle close)":"No market snapshot yet — start the worker.";
+  const g=(d.contract||{});
+  $("mkKpis").innerHTML=[card("Nifty spot",fmt(k.spot)),card("Nifty futures",fmt(k.futures)),card("India VIX",fmt(k.vix)),card("Futures VWAP",fmt(k.futures_vwap)),card("EMA 9 / 20",fmt(k.ema9)+" / "+fmt(k.ema20)),card("EMA 50 / 200",fmt(k.ema50)+" / "+fmt(k.ema200)),card("ATR(14) 5m",fmt(k.atr14)),card("Regime",(k.regime||{}).regime||"–"),card("OR high / low",fmt(k.or_high)+" / "+fmt(k.or_low)),card("Contract",g.trading_symbol||ps.symbol||"–"),card("Bid / ask",fmt((ps.bid??(d.quote||{}).bid))+" / "+fmt(ps.ask??(d.quote||{}).ask)),card("Chain IV / Δ",fmt((d.checks||{}).chain_iv)+" / "+fmt((d.checks||{}).chain_delta)),card("Position Δ / Γ",fmt((ps.greeks||{}).delta,3)+" / "+fmt((ps.greeks||{}).gamma,4)),card("Position Θ / Vega",fmt((ps.greeks||{}).theta)+" / "+fmt((ps.greeks||{}).vega))].join("");
+  $("mkReasons").textContent=JSON.stringify({reasons:k.strategy_reasons,regime:k.regime},null,1);$("mkDecision").textContent=d&&Object.keys(d).length?JSON.stringify(d,null,1):"none";}
+async function research(){const r=await j("/api/research");if(r.note){$("hvKpis").innerHTML=card("Research",r.note);return}
+  $("hvKpis").innerHTML=Object.entries(r.hv).map(([k,v])=>card(k,fmt(v))).join("")+card("EWMA next (λ=0.94)",fmt(r.ewma_vol_next))+card("Regime (live)",(r.regime||{}).regime||"–")+card("Days in lake",r.days);
+  line("hvChart",["HV10","HV20","HV60"].map(c=>({pts:r.hv_series.map(x=>[x.date,x[c]])})));
+  if(typeof r.garch==="string")$("tGarch").innerHTML=`<tr><td>${r.garch}</td></tr>`;else table("tGarch",Object.entries(r.garch).map(([m,v])=>({model:m,aic:v.aic,converged:v.converged,persistence:v.persistence,"5d vol %":v.forecast_5d_vol,params:v.params})));
+  table("tEwma",r.ewma_lambda_oos||[]);
+  const m=await j("/api/research/models");if(m.note){$("fcKpis").innerHTML=card("Models",m.note);return}
+  const F=m.forecasts||{};$("fcKpis").innerHTML=card("Next session",m.next_session)+[["HV20","hv20"],["EWMA fc","ewma_fc"],["GARCH fc","garch_fc"],["GJR fc","gjr_fc"],["VIX (prev)","vix_prev"],["ATM IV (prev)","atm_iv_prev"],["IV percentile","iv_pctile"],["RV/IV","rv_iv_ratio"]].map(([k,c])=>card(k,fmt(F[c]))).join("")+card("IV rank 252d",fmt(m.iv_rank_252))+card("Events next session",m.events_next_session||"none");
+  line("rvivChart",["garch_fc","ewma_fc","atm_iv_prev","hv20"].map(c=>({pts:m.series.map(x=>[x.date,x[c]])})));
+  $("hmmInfo").textContent=JSON.stringify({next_session_label:m.hmm.label,probabilities:m.hmm.probs,last_500_days:m.hmm_label_counts_500d},null,1);
+  table("tVolEval",m.vol_model_eval||[]);table("tMl",m.ml_metrics||[]);}
+$("loadTerm").onclick=async()=>{try{const t=await j("/api/research/term_structure");table("tTerm",t);line("termChart",[{pts:t.map(x=>[x.expiry,x.atm_iv_model]),dots:true},{pts:t.map(x=>[x.expiry,x.atm_iv_provider]),dots:true}])}catch(e){$("tTerm").innerHTML=`<tr><td>${e}</td></tr>`}};
+$("loadChain").onclick=async()=>{try{const c=await j("/api/research/chain?expiry="+$("expiry").value);
+  line("smile",[{pts:c.smile.map(s=>[s.strike,s.model_iv]),dots:true}]);$("chainInfo").textContent=JSON.stringify({spot:c.spot,atm_iv_model:c.atm_iv_model,atm_iv_provider:c.atm_iv_provider,skew_2pct:c.skew_2pct,model_vs_provider_greeks:c.model_vs_provider},null,1)}catch(e){$("chainInfo").textContent=String(e)}};
+let btLoaded=false;
+async function backtests(){
+  if(!btLoaded){btLoaded=true;const ss=await j("/api/strategies");$("btStrat").innerHTML=ss.map(x=>`<option value="${x.strategy_id}">${x.strategy_id} (${x.status})</option>`).join("");$("btEnd").value=new Date().toISOString().slice(0,10)}
+  const rep=await j("/api/research/report");
+  if(rep.note){$("repInfo").textContent=rep.note}else{$("repInfo").textContent=`${rep.path} · period ${rep.period.join(" → ")} · ML samples ${rep.ml_samples}`;
+    table("tRep",rep.experiments,["experiment","scenario","trades","net_pnl","win_rate_pct","profit_factor","expectancy","max_drawdown","oos_trades","oos_net","skipped"]);
+    table("tWF",(rep.walk_forward||{}).folds||[]);table("tSens",rep.parameter_sensitivity||[]);table("tCost",rep.cost_sensitivity_B||[]);table("tDQ",rep.data_quality_sensitivity_B||[]);}
+  const b0=await j("/api/backtests");const b=b0.map(x=>({sel:`<input type="checkbox" class="cmp" value="${x.run_id}">`,...x}));
+  table("tBt",b,["sel","run_id","experiment","scenario","start","end","trades","net_pnl","roi_pct","win_rate_pct","profit_factor","expectancy","max_drawdown","sharpe","charges","is_net","oos_net"],async row=>{
+    const d=await j("/api/backtests/"+row.run_id);
+    $("btDetail").innerHTML=`<h2>${row.run_id}</h2><p><a href="/api/backtests/${row.run_id}/trades.csv">Download trades CSV</a></p><div class="chart"><svg id="btEq"></svg></div><h2>In-sample vs out-of-sample</h2><div class="tw"><table id="tIsOos"></table></div><h2>Trades</h2><div class="tw"><table id="tBtTrades"></table></div><h2>Robustness / config</h2><pre>${JSON.stringify({monte_carlo:d.robustness?.monte_carlo,bootstrap:d.robustness?.bootstrap,by_exit_reason:d.metrics.by_exit_reason,by_regime:d.metrics.by_regime,config:d.config},null,1)}</pre>`;
+    line("btEq",[{pts:d.equity.map(e=>[e.date,e.equity]),dots:true}]);
+    const ks=["trades","net_pnl","win_rate_pct","profit_factor","expectancy","max_drawdown","sharpe"];
+    table("tIsOos",[{sample:"in-sample",...Object.fromEntries(ks.map(k=>[k,d.robustness?.in_sample?.[k]]))},{sample:"out-of-sample (from "+(d.robustness?.oos_start||"")+")",...Object.fromEntries(ks.map(k=>[k,d.robustness?.out_of_sample?.[k]]))}]);
+    table("tBtTrades",d.trades,["trading_day","direction","trading_symbol","entry_time","entry_price","stop","target","exit_time","exit_price","exit_reason","gross_pnl","charges","net_pnl","regime"]);});}
+async function trades(){$("exportLink").href=`/api/export/trades.csv?mode=${mode}`;
+  table("tTrades",await j(`/api/trades?mode=${mode}`),["trading_day","trading_symbol","option_type","strategy_id","status","qty","entry_time","entry_price","exit_time","exit_price","exit_reason","charges","gross_pnl","net_pnl","roi_pct","mode"]);
+  table("tOrders",await j("/api/orders"),["created_at","order_id","role","mode","trading_symbol","side","qty","order_type","price","trigger_price","state","filled_qty","avg_price","broker_order_id"]);
+  $("pvb").textContent=JSON.stringify(await j("/api/paper_vs_backtest"),null,1);
+  table("tDecisions",(await j("/api/decisions")).map(d=>({ts:d.ts,approved:d.approved?"yes":"no",stage:d.payload.stage,reason:d.payload.reason||(d.payload.failures||[]).join(", "),contract:(d.payload.contract||{}).trading_symbol,planned_loss:d.payload.planned_loss})));}
+async function health(){const h=await j("/api/health");const c=h.checks;
+  $("healthChip").textContent="health: "+h.overall;$("healthChip").className="chip "+(h.overall==="ok"?"ok":"bad");
+  if(tab!=="health")return;
+  $("hKpis").innerHTML=[card("Overall",h.overall),card("Database",c.database?"ok":"FAIL"),card("Worker alive",c.worker_alive?"yes":"no"),card("Heartbeat age",c.worker_heartbeat_age_s==null?"–":fmt(c.worker_heartbeat_age_s,0)+" s"),card("Last market data",c.last_market_data||"–"),card("Broker token",c.broker_token_valid?"valid":"EXPIRED"),card("Token expires",c.broker_token_expires||"–"),card("Reconciliation needed",c.reconciliation_required),card("Kill switch",c.kill_switch?"ACTIVE":"off"),card("WebSocket",c.websocket)].join("");
+  $("hIngest").textContent=JSON.stringify(c.historical_ingestion,null,1);table("tAlerts",await j("/api/alerts"),["ts","level","code","message","delivered"]);
+  const dq=await j("/api/data_quality");table("tDQr",Object.entries(dq).filter(([k])=>k!=="instrument_quality").map(([k,v])=>({dataset:k,windows:v.windows,symbols:v.symbols,status:v.status,rows_valid:v.rows_valid,duplicates:v.duplicates,invalid_ohlc:v.invalid_ohlc,quarantined_outside_session:v.outside_session_quarantined,missing_intervals:v.missing_intervals})));table("tErrors",c.latest_errors,["ts","source","message"]);}
+$("btRun").onclick=async()=>{const body={strategy_id:$("btStrat").value,start:$("btStart").value,end:$("btEnd").value,scenario:$("btScn").value,charges_multiplier:$("btCh").value,capital:$("btCap").value,risk_per_trade_max:$("btRisk").value,reward_risk:$("btRR").value,itm_steps:$("btItm").value,avoid_expiry_day:$("btAvoid").checked};
+  const r=await fetch("/api/backtests/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});const {job_id}=await r.json();$("btJob").textContent="running "+job_id+" …";
+  const poll=setInterval(async()=>{const s=await j("/api/jobs/"+job_id);if(s.status!=="running"){clearInterval(poll);$("btJob").textContent=s.status==="done"?`done: ${s.run_id} ${JSON.stringify(s.metrics)}`:"failed: "+s.error;btLoaded=true;backtests()}},3000)};
+$("cmpBtn").onclick=async()=>{const ids=[...document.querySelectorAll(".cmp:checked")].map(x=>x.value);if(!ids.length)return;const c=await j("/api/backtests_compare?ids="+ids.join(","));
+  $("cmpOut").innerHTML=`<h2>Comparison</h2><div class="chart"><svg id="cmpEq"></svg></div><div class="tw"><table id="tCmp"></table></div>`;
+  line("cmpEq",c.map(x=>({pts:x.equity.map(e=>[e.date,e.equity])})));
+  table("tCmp",c.map(x=>({run:x.experiment+"/"+x.scenario,...x.metrics,is_net:x.in_sample.net_pnl,oos_net:x.out_of_sample.net_pnl,oos_pf:x.out_of_sample.profit_factor})))};
+async function strategies(){const s=await j("/api/strategies");table("tStrats",s.map(x=>({strategy_id:x.strategy_id,version:x.version,class:x.class,status:x.status,active:x.active?"yes":"",config_hash:x.config_hash,description:x.description})),null,row=>{$("stratDetail").textContent=JSON.stringify(s.find(x=>x.strategy_id===row.strategy_id),null,1)})}
+// ---------------- EMA 9/21 trade viewer
+let emaRows=[],emaSel=0,emaCfgs=[],emaChartCache={};
+function emaTf(){const c=emaCfgs.find(x=>x.name===$("emaCfg").value);return c?c.tf:15}
+async function ema(){
+  try{ if(!emaCfgs.length){$("emaState").textContent="loading…";emaCfgs=await j("/api/ema921/configs");
+      if(!emaCfgs.length){$("emaState").textContent="No results yet — run: python3 scripts/ema921_research.py";return}
+      $("emaCfg").innerHTML=emaCfgs.map(c=>`<option value="${c.name}">${c.tf}m · ${c.start} → ${c.cutoff}</option>`).join("")}
+    const cfg=$("emaCfg").value,s=await j(`/api/ema921/${cfg}/summary`);
+    table("emaModes",Object.entries(s.modes).map(([m,v])=>({mode:m,trades:v.trades,win_rate:v.win_rate,gross_pnl:v.gross_pnl,friction:v.friction,net_pnl:v.net_pnl,profit_factor:v.profit_factor,payoff_ratio:v.payoff_ratio,expectancy:v.expectancy,max_dd_rs:v.max_dd_rs,max_dd_pct:v.max_dd_pct,is_2020_23:v.is_2020_23,oos_2024_26:v.oos_2024_26})));
+    $("emaState").textContent="loading trades…";
+    const r=await j(`/api/ema921/${cfg}/trades?mode=${$("emaMode").value}&outcome=${$("emaOut").value}&cross=${$("emaCross").value}&direction=${$("emaDir").value}`);
+    emaRows=r.trades;emaSel=0;const k=r.kpis;
+    $("emaState").textContent=emaRows.length?"":"No trades match these filters.";
+    $("emaKpis").innerHTML=[card("Total trades",fmt(k.trades)),card("Win rate",k.win_rate==null?"–":k.win_rate+"%"),card("Net P&L",rs(k.net_pnl)),card("Gross P&L",rs(k.gross_pnl)),card("Profit factor",fmt(k.profit_factor)),card("Max DD",rs(k.max_dd_rs)),card("Selected trade P&L",'<span id="emaSelPnl">–</span>')].join("");
+    $("emaList").innerHTML="<tr><th>Date</th><th>Time</th><th>Dir</th><th>#</th><th>Net</th></tr>"+emaRows.map((t,i)=>`<tr class="click" data-i="${i}" id="emaR${i}"><td>${t.date}</td><td>${t.entry_ts.slice(11,16)}</td><td>${t.direction==="BULLISH"?"▲":"▼"}</td><td>${t.cross_no}</td><td>${rs(t.net_pnl)}</td></tr>`).join("");
+    document.querySelectorAll("#emaList tr.click").forEach(tr=>tr.onclick=()=>emaShow(+tr.dataset.i));
+    if(emaRows.length)emaShow(0);
+  }catch(e){$("emaState").textContent="Error: "+e}}
+async function emaShow(i){if(!emaRows.length)return;emaSel=Math.max(0,Math.min(emaRows.length-1,i));const t=emaRows[emaSel];
+  document.querySelectorAll("#emaList tr").forEach(r=>r.style.background="");const row=$("emaR"+emaSel);if(row){row.style.background="var(--chip)";row.scrollIntoView({block:"nearest"})}
+  $("emaSelPnl").innerHTML=rs(t.net_pnl);
+  $("emaMeta").innerHTML=[["Symbol",t.symbol],["Direction",t.direction],["Action",t.action],["NIFTY entry → exit",fmt(t.nifty_entry)+" → "+fmt(t.nifty_exit)],["Option entry → exit",fmt(t.opt_entry_fill)+" → "+fmt(t.opt_exit_fill)],["Expiry / DTE",t.expiry+" / "+t.dte],["Exit reason",t.exit_reason],["Net P&L",rs(t.net_pnl)]].map(([a,b])=>`<div><div class="k note">${a}</div><b>${b??"–"}</b></div>`).join("")+(t.whipsaw?'<span class="chip bad">whipsaw</span>':"")+(t.reversal?'<span class="chip">reversal</span>':"")+(t.stale_fill?'<span class="chip bad">stale option fill</span>':"");
+  const ch=t.charges||{};table("emaCost",[{item:"Gross P&L",amount:t.gross_pnl},{item:"Slippage",amount:-t.slippage},...["brokerage","stt","exchange","sebi","stamp","ipft","gst"].map(x=>({item:x.toUpperCase(),amount:-(ch[x]||0)})),{item:"Net P&L",amount:t.net_pnl}].map(r=>({item:r.item,net_pnl:Math.round(r.amount*100)/100})));
+  $("emaChartTitle").textContent=`Chart — ${t.date} (${emaTf()}m)`;
+  const key=t.date+"|"+emaTf();if(!emaChartCache[key])emaChartCache[key]=await j(`/api/ema921/${$("emaCfg").value}/chart?date=${t.date}&tf=${emaTf()}`);
+  candles("emaChart",emaChartCache[key],t)}
+function candles(id,bars,t){const svg=$(id),W=svg.clientWidth||700,H=340,P=46;if(!bars.length){svg.innerHTML="";return}
+  const css=getComputedStyle(document.documentElement),C=k=>css.getPropertyValue(k);
+  let lo=Math.min(...bars.map(b=>Math.min(b.low,b.ema9??b.low,b.ema21??b.low))),hi=Math.max(...bars.map(b=>Math.max(b.high,b.ema9??b.high,b.ema21??b.high)));const pad=(hi-lo)*0.05;lo-=pad;hi+=pad;
+  const n=bars.length,cw=(W-P-10)/n,x=i=>P+cw*i+cw/2,y=v=>8+(H-36)*(1-(v-lo)/(hi-lo));
+  let g="";for(let k=0;k<=4;k++){const v=lo+(hi-lo)*k/4;g+=`<line x1="${P}" x2="${W}" y1="${y(v)}" y2="${y(v)}" stroke="${C("--line")}"/><text x="2" y="${y(v)+3}" font-size="10" fill="${C("--muted")}">${v.toFixed(0)}</text>`}
+  bars.forEach((b,i)=>{const up=b.close>=b.open,col=up?C("--pos"):C("--neg");g+=`<line x1="${x(i)}" x2="${x(i)}" y1="${y(b.high)}" y2="${y(b.low)}" stroke="${col}"/><rect x="${x(i)-cw*0.35}" y="${y(Math.max(b.open,b.close))}" width="${Math.max(1,cw*0.7)}" height="${Math.max(1,Math.abs(y(b.open)-y(b.close)))}" fill="${col}"><title>${b.timestamp.slice(11,16)} O${b.open} H${b.high} L${b.low} C${b.close}</title></rect>`;
+    if(i%Math.ceil(n/8)===0)g+=`<text x="${x(i)}" y="${H-6}" font-size="10" text-anchor="middle" fill="${C("--muted")}">${b.timestamp.slice(11,16)}</text>`});
+  const ln=(k,col)=>`<polyline fill="none" stroke="${col}" stroke-width="1.6" points="${bars.map((b,i)=>b[k]==null?"":`${x(i)},${y(b[k])}`).join(" ")}"/>`;
+  g+=ln("ema9",C("--accent"))+ln("ema21",C("--warn"));
+  const tf=emaTf(),idxOf=ts=>{const T=new Date(ts).getTime();let best=-1;bars.forEach((b,i)=>{if(new Date(b.timestamp).getTime()+tf*60000<=T)best=i});return best};
+  const ei=idxOf(t.entry_ts),xi=idxOf(t.exit_ts),bull=t.direction==="BULLISH";
+  if(ei>=0)g+=`<text x="${x(ei)}" y="${y(t.nifty_entry)+(bull?16:-8)}" text-anchor="middle" font-size="15" fill="${bull?C("--pos"):C("--neg")}">${bull?"▲":"▼"}</text>`;
+  if(xi>=0)g+=`<text x="${x(xi)}" y="${y(t.nifty_exit)+5}" text-anchor="middle" font-size="15" fill="${C("--ink")}">✕</text>`;
+  svg.innerHTML=g}
+["emaCfg","emaMode","emaOut","emaCross","emaDir"].forEach(id=>$(id).onchange=()=>ema());
+document.addEventListener("keydown",e=>{if(tab!=="ema"||!emaRows.length)return;if(e.key==="ArrowDown"){e.preventDefault();emaShow(emaSel+1)}if(e.key==="ArrowUp"){e.preventDefault();emaShow(emaSel-1)}});
+(function(){let th=null;try{th=localStorage.getItem("nq-theme")}catch(_){};if(th)document.documentElement.dataset.theme=th;
+  $("themeBtn").onclick=()=>{const cur=document.documentElement.dataset.theme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");const nx=cur==="dark"?"light":"dark";document.documentElement.dataset.theme=nx;try{localStorage.setItem("nq-theme",nx)}catch(_){};refresh()}})();
+$("killBtn").onclick=async()=>{const r=prompt("Reason for kill switch?","manual");if(r==null)return;await fetch("/api/kill",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({reason:r})});refresh()};
+$("resumeBtn").onclick=async()=>{const c=prompt('Type RESUME to clear the kill switch');if(c==null)return;const r=await fetch("/api/kill/off",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({confirm:c})});if(!r.ok)alert("Not cleared");refresh()};
+async function refresh(){try{await health();const f={overview,pnl,market,research,backtests,ema,strategies,trades,health}[tab];if(f&&f!==health)await f()}catch(e){console.error(e)}}
+nav();show();setInterval(()=>{if(["overview","market","health","trades"].includes(tab))refresh()},10000);
+</script>
+</body>
+</html>

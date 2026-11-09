@@ -1,0 +1,67 @@
+# Global settings. Values can be overridden by config/local.yaml (git-ignored is fine).
+mode: paper              # research | paper | live   (live additionally needs a same-day approval file)
+timezone: Asia/Kolkata
+provider: groww
+
+paths:
+  ledger_db: state/ledger.sqlite3
+  kill_switch_file: state/KILL_SWITCH
+  live_approval_file: state/live_approval.json
+  data_lake: data_lake
+  backtests: data/backtests
+  logs: logs
+
+session:
+  market_open: "09:15"
+  market_close: "15:30"
+  entry_start: "09:30"      # first entry decision allowed after this time
+  entry_end: "14:30"        # no new entries after this time
+  square_off: "15:15"       # force exit of any open position
+  stop_trading: "15:20"     # worker stops its loop after this time
+  candle_close_lag_seconds: 5   # wait this long after a candle closes before reading it
+  poll_seconds: 3               # position-monitoring poll interval
+  no_data_abort_time: "09:25"   # if no fresh index candle by then -> treat as non-trading day
+
+rate_limits:                # from official Groww docs (Introduction > Rate Limits), read 2026-11-09
+  live_data_per_sec: 8      # documented 10/s, 300/min
+  live_data_per_min: 250
+  non_trading_per_sec: 15   # documented 20/s, 500/min
+  non_trading_per_min: 450
+  orders_per_sec: 5         # documented 10/s, 250/min
+  orders_per_min: 200
+  historical_per_sec: 2     # not documented; observed 'Rate limit has breached' at ~2/s sustained
+  historical_per_min: 90
+
+historical:
+  max_days_per_request:     # official backtesting limits
+    1minute: 30
+    5minute: 30
+    15minute: 90
+    30minute: 90
+    1hour: 180
+    1day: 180
+  max_retries: 5
+  backoff_base_seconds: 1.0
+
+execution:
+  product: MIS              # intraday product for F&O (verify on first live use)
+  validity: DAY
+  entry_order_type: LIMIT   # marketable limit; MARKET not used for options
+  limit_buffer_ticks: 4     # entry limit = ask + 4 ticks, exit limit = bid - 4 ticks
+  fill_timeout_seconds: 20  # cancel unfilled entry after this
+  broker_side_stop: true    # place a protective SL (stop-limit) order after entry fill
+  stop_limit_buffer_ticks: 20
+  reconcile_retries: 6
+  reconcile_wait_seconds: 2
+
+paper:
+  slippage_ticks: 1         # extra adverse ticks on top of crossing the spread
+  starting_capital: 20000
+
+backtest:
+  scenarios:
+    optimistic:   {spread_pct: 0.2, slippage_ticks: 0}
+    base:         {spread_pct: 0.5, slippage_ticks: 1}
+    conservative: {spread_pct: 1.0, slippage_ticks: 3}
+  risk_free_rate: 0.065
+  out_of_sample_fraction: 0.3

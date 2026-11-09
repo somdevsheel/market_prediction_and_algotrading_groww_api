@@ -1,0 +1,55 @@
+# Event-risk calendar. Used as a FILTER (avoid buying options into scheduled IV-crush events), never as a signal.
+# Sources: RBI MPC schedules FY2025-26 and FY2026-27 (RBI press releases, verified 2026-11-09).
+# Earlier RBI dates, budgets and elections were entered from memory -> VERIFY before relying on them.
+rbi_policy_decisions:      # last day of each MPC meeting = announcement day (10:00 IST)
+  - "2021-04-07"
+  - "2021-06-04"
+  - "2021-08-06"
+  - "2021-10-08"
+  - "2021-12-08"
+  - "2022-02-10"
+  - "2022-04-08"
+  - "2022-05-04"
+  - "2022-06-08"
+  - "2022-08-05"
+  - "2022-09-30"
+  - "2022-12-07"
+  - "2023-02-08"
+  - "2023-04-06"
+  - "2023-06-08"
+  - "2023-08-10"
+  - "2023-10-06"
+  - "2023-12-08"
+  - "2024-02-08"
+  - "2024-04-05"
+  - "2024-06-07"
+  - "2024-08-08"
+  - "2024-10-09"
+  - "2024-12-06"
+  - "2025-02-07"
+  - "2025-04-09"      # verified
+  - "2025-06-06"      # verified
+  - "2025-08-07"      # verified
+  - "2025-10-01"      # verified
+  - "2025-12-05"      # verified
+  - "2026-02-06"      # verified
+  - "2026-04-08"      # verified
+  - "2026-06-05"      # verified
+  - "2026-08-05"      # verified
+  - "2026-10-07"      # verified
+  - "2026-12-04"      # verified
+  - "2027-02-05"      # verified
+union_budget:
+  - "2021-02-01"
+  - "2022-02-01"
+  - "2023-02-01"
+  - "2024-02-01"
+  - "2024-07-23"
+  - "2025-02-01"
+  - "2026-02-01"
+election_results:
+  - "2024-06-04"
+# CPI (MoSPI) is released on the 12th of each month after market hours -> affects the NEXT session.
+cpi_release_day_of_month: 12
+cpi_affects_next_session: true
+custom: []                 # add any other dates (e.g. FOMC, major global events) as "YYYY-MM-DD"

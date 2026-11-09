@@ -1,0 +1,53 @@
+underlying: NIFTY
+exchange: NSE
+index_groww_symbol: NSE-NIFTY
+index_trading_symbol: NIFTY
+vix_trading_symbol: INDIAVIX
+strike_step: 50
+tick_size: 0.05
+
+contract_selection:
+  itm_steps: 1                 # 1 strike in the money
+  avoid_expiry_day: true       # do not buy 0-DTE contracts; use next expiry
+  max_spread_pct: 1.5          # (ask-bid)/mid * 100
+  min_volume: 50000
+  min_open_interest: 5000
+  min_premium: 20
+  max_premium: 600
+
+# Historical lot-size schedule for backtests (live always reads lot size from the instrument master).
+# VERIFY against NSE circulars before trusting backtests across these dates.
+lot_size_schedule:
+  - {from: "2020-01-01", lot_size: 75}
+  - {from: "2021-07-30", lot_size: 50}   # from memory - VERIFY
+  - {from: "2024-04-26", lot_size: 25}   # from memory - VERIFY (25 confirmed as the size before Nov 2024)
+  - {from: "2024-11-20", lot_size: 75}   # confirmed (NSE revision 25 -> 75, Nov 2024)
+  - {from: "2025-12-30", lot_size: 65}   # confirmed (NSE revision 75 -> 65 announced Oct 2025)
+
+# NSE trading holidays (VERIFY each year against the official NSE circular).
+# The worker also aborts if no fresh index candle appears by session.no_data_abort_time.
+holidays:
+  - "2026-01-26"
+  - "2026-03-03"
+  - "2026-03-26"
+  - "2026-03-31"
+  - "2026-04-03"
+  - "2026-04-14"
+  - "2026-05-01"
+  - "2026-05-28"
+  - "2026-06-26"
+  - "2026-09-14"
+  - "2026-10-02"
+  - "2026-10-20"
+  - "2026-11-10"
+  - "2026-11-24"
+  - "2026-12-25"
+
+charges:                       # Indian F&O option-buying charges. VERIFY current rates.
+  brokerage_per_order: 20.0
+  stt_sell_pct: 0.1            # on sell-side premium
+  exchange_txn_pct: 0.03503    # NSE options, on premium
+  sebi_pct: 0.0001
+  stamp_buy_pct: 0.003
+  ipft_pct: 0.0005
+  gst_pct: 18.0                # on brokerage + exchange + sebi
