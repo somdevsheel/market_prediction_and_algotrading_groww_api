@@ -114,10 +114,6 @@ pre{white-space:pre-wrap;word-break:break-word;background:var(--panel);border:1p
     <label><input type="checkbox" id="btAvoid" checked> avoid expiry day</label>
     <button class="sec" id="btRun">Run</button><span id="btJob" class="note"></span>
   </div>
-  <h2>Research suite report</h2><div id="repInfo" class="note"></div>
-  <div class="tw"><table id="tRep"></table></div>
-  <div class="two"><div><h2>Walk-forward (parameter selection on train, scored on next test window)</h2><div class="tw"><table id="tWF"></table></div></div>
-  <div><h2>Parameter / cost / data-quality sensitivity</h2><div class="tw"><table id="tSens"></table></div><div class="tw" style="margin-top:8px"><table id="tCost"></table></div><div class="tw" style="margin-top:8px"><table id="tDQ"></table></div></div></div>
   <h2>All runs <button class="sec" id="cmpBtn">Compare selected</button></h2>
   <div class="tw"><table id="tBt"></table></div>
   <div id="cmpOut"></div>
@@ -138,33 +134,13 @@ pre{white-space:pre-wrap;word-break:break-word;background:var(--panel);border:1p
   <h2>Latest errors</h2><div class="tw"><table id="tErrors"></table></div>
   <p class="note">Prometheus metrics: <a href="/metrics">/metrics</a></p>
 </section>
-<section id="ema">
-  <div class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
-    <label>Config (timeframe · start · cutoff)<br><select id="emaCfg" class="sec"></select></label>
-    <label>Mode<br><select id="emaMode" class="sec"><option>ITM5_BUY</option><option selected>ATM_BUY</option><option>ATM_SELL</option></select></label>
-    <label>Outcome<br><select id="emaOut" class="sec"><option value="all">all</option><option value="win">winners</option><option value="loss">losers</option></select></label>
-    <label>Direction<br><select id="emaDir" class="sec"><option value="all">all</option><option>BULLISH</option><option>BEARISH</option></select></label>
-    <label>Which cross<br><select id="emaCross" class="sec"><option value="0">all</option><option value="1">1st</option><option value="2">2nd</option><option value="3">3rd</option><option value="4">4th+</option></select></label>
-    <span class="note" id="emaState"></span>
-  </div>
-  <div class="grid" id="emaKpis" style="margin-top:10px"></div>
-  <h2>Mode comparison (this config)</h2><div class="tw"><table id="emaModes"></table></div>
-  <div class="two" style="grid-template-columns:minmax(260px,1fr) 2fr;margin-top:10px">
-    <div><h2>Trades <span class="note">(↑/↓ to navigate)</span></h2><div class="tw" style="max-height:520px;overflow:auto" id="emaListWrap" tabindex="0"><table id="emaList"></table></div></div>
-    <div><h2 id="emaChartTitle">Chart</h2>
-      <div class="card" id="emaMeta" style="display:flex;gap:14px;flex-wrap:wrap;font-size:13px"></div>
-      <div class="chart" style="margin-top:8px"><svg id="emaChart" style="height:340px"></svg></div>
-      <p class="note">Candles: NIFTY spot at the strategy timeframe · blue EMA 9 · amber EMA 21 · ▲/▼ entry · ✕ exit</p>
-      <h2>Cost card</h2><div class="tw"><table id="emaCost"></table></div></div>
-  </div>
-</section>
 <section id="strategies">
   <p class="note">Governance: status changes need evidence (<code>python scripts/promote_strategy.py</code>). Approval for live is tied to the config hash; any change to params/filters voids it.</p>
   <div class="tw"><table id="tStrats"></table></div><pre id="stratDetail"></pre>
 </section>
 </main>
 <script>
-const TABS=["overview","pnl","market","research","backtests","ema","strategies","trades","health"];
+const TABS=["overview","pnl","market","research","backtests","strategies","trades","health"];
 const $=id=>document.getElementById(id);
 let mode="paper";try{mode=localStorage.getItem("nq-mode")||"paper"}catch(_){} $("mode").value=mode;
 $("mode").onchange=e=>{mode=e.target.value;try{localStorage.setItem("nq-mode",mode)}catch(_){};refresh()};
@@ -227,10 +203,6 @@ $("loadChain").onclick=async()=>{try{const c=await j("/api/research/chain?expiry
 let btLoaded=false;
 async function backtests(){
   if(!btLoaded){btLoaded=true;const ss=await j("/api/strategies");$("btStrat").innerHTML=ss.map(x=>`<option value="${x.strategy_id}">${x.strategy_id} (${x.status})</option>`).join("");$("btEnd").value=new Date().toISOString().slice(0,10)}
-  const rep=await j("/api/research/report");
-  if(rep.note){$("repInfo").textContent=rep.note}else{$("repInfo").textContent=`${rep.path} · period ${rep.period.join(" → ")} · ML samples ${rep.ml_samples}`;
-    table("tRep",rep.experiments,["experiment","scenario","trades","net_pnl","win_rate_pct","profit_factor","expectancy","max_drawdown","oos_trades","oos_net","skipped"]);
-    table("tWF",(rep.walk_forward||{}).folds||[]);table("tSens",rep.parameter_sensitivity||[]);table("tCost",rep.cost_sensitivity_B||[]);table("tDQ",rep.data_quality_sensitivity_B||[]);}
   const b0=await j("/api/backtests");const b=b0.map(x=>({sel:`<input type="checkbox" class="cmp" value="${x.run_id}">`,...x}));
   table("tBt",b,["sel","run_id","experiment","scenario","start","end","trades","net_pnl","roi_pct","win_rate_pct","profit_factor","expectancy","max_drawdown","sharpe","charges","is_net","oos_net"],async row=>{
     const d=await j("/api/backtests/"+row.run_id);
@@ -258,53 +230,11 @@ $("cmpBtn").onclick=async()=>{const ids=[...document.querySelectorAll(".cmp:chec
   line("cmpEq",c.map(x=>({pts:x.equity.map(e=>[e.date,e.equity])})));
   table("tCmp",c.map(x=>({run:x.experiment+"/"+x.scenario,...x.metrics,is_net:x.in_sample.net_pnl,oos_net:x.out_of_sample.net_pnl,oos_pf:x.out_of_sample.profit_factor})))};
 async function strategies(){const s=await j("/api/strategies");table("tStrats",s.map(x=>({strategy_id:x.strategy_id,version:x.version,class:x.class,status:x.status,active:x.active?"yes":"",config_hash:x.config_hash,description:x.description})),null,row=>{$("stratDetail").textContent=JSON.stringify(s.find(x=>x.strategy_id===row.strategy_id),null,1)})}
-// ---------------- EMA 9/21 trade viewer
-let emaRows=[],emaSel=0,emaCfgs=[],emaChartCache={};
-function emaTf(){const c=emaCfgs.find(x=>x.name===$("emaCfg").value);return c?c.tf:15}
-async function ema(){
-  try{ if(!emaCfgs.length){$("emaState").textContent="loading…";emaCfgs=await j("/api/ema921/configs");
-      if(!emaCfgs.length){$("emaState").textContent="No results yet — run: python3 scripts/ema921_research.py";return}
-      $("emaCfg").innerHTML=emaCfgs.map(c=>`<option value="${c.name}">${c.tf}m · ${c.start} → ${c.cutoff}</option>`).join("")}
-    const cfg=$("emaCfg").value,s=await j(`/api/ema921/${cfg}/summary`);
-    table("emaModes",Object.entries(s.modes).map(([m,v])=>({mode:m,trades:v.trades,win_rate:v.win_rate,gross_pnl:v.gross_pnl,friction:v.friction,net_pnl:v.net_pnl,profit_factor:v.profit_factor,payoff_ratio:v.payoff_ratio,expectancy:v.expectancy,max_dd_rs:v.max_dd_rs,max_dd_pct:v.max_dd_pct,is_2020_23:v.is_2020_23,oos_2024_26:v.oos_2024_26})));
-    $("emaState").textContent="loading trades…";
-    const r=await j(`/api/ema921/${cfg}/trades?mode=${$("emaMode").value}&outcome=${$("emaOut").value}&cross=${$("emaCross").value}&direction=${$("emaDir").value}`);
-    emaRows=r.trades;emaSel=0;const k=r.kpis;
-    $("emaState").textContent=emaRows.length?"":"No trades match these filters.";
-    $("emaKpis").innerHTML=[card("Total trades",fmt(k.trades)),card("Win rate",k.win_rate==null?"–":k.win_rate+"%"),card("Net P&L",rs(k.net_pnl)),card("Gross P&L",rs(k.gross_pnl)),card("Profit factor",fmt(k.profit_factor)),card("Max DD",rs(k.max_dd_rs)),card("Selected trade P&L",'<span id="emaSelPnl">–</span>')].join("");
-    $("emaList").innerHTML="<tr><th>Date</th><th>Time</th><th>Dir</th><th>#</th><th>Net</th></tr>"+emaRows.map((t,i)=>`<tr class="click" data-i="${i}" id="emaR${i}"><td>${t.date}</td><td>${t.entry_ts.slice(11,16)}</td><td>${t.direction==="BULLISH"?"▲":"▼"}</td><td>${t.cross_no}</td><td>${rs(t.net_pnl)}</td></tr>`).join("");
-    document.querySelectorAll("#emaList tr.click").forEach(tr=>tr.onclick=()=>emaShow(+tr.dataset.i));
-    if(emaRows.length)emaShow(0);
-  }catch(e){$("emaState").textContent="Error: "+e}}
-async function emaShow(i){if(!emaRows.length)return;emaSel=Math.max(0,Math.min(emaRows.length-1,i));const t=emaRows[emaSel];
-  document.querySelectorAll("#emaList tr").forEach(r=>r.style.background="");const row=$("emaR"+emaSel);if(row){row.style.background="var(--chip)";row.scrollIntoView({block:"nearest"})}
-  $("emaSelPnl").innerHTML=rs(t.net_pnl);
-  $("emaMeta").innerHTML=[["Symbol",t.symbol],["Direction",t.direction],["Action",t.action],["NIFTY entry → exit",fmt(t.nifty_entry)+" → "+fmt(t.nifty_exit)],["Option entry → exit",fmt(t.opt_entry_fill)+" → "+fmt(t.opt_exit_fill)],["Expiry / DTE",t.expiry+" / "+t.dte],["Exit reason",t.exit_reason],["Net P&L",rs(t.net_pnl)]].map(([a,b])=>`<div><div class="k note">${a}</div><b>${b??"–"}</b></div>`).join("")+(t.whipsaw?'<span class="chip bad">whipsaw</span>':"")+(t.reversal?'<span class="chip">reversal</span>':"")+(t.stale_fill?'<span class="chip bad">stale option fill</span>':"");
-  const ch=t.charges||{};table("emaCost",[{item:"Gross P&L",amount:t.gross_pnl},{item:"Slippage",amount:-t.slippage},...["brokerage","stt","exchange","sebi","stamp","ipft","gst"].map(x=>({item:x.toUpperCase(),amount:-(ch[x]||0)})),{item:"Net P&L",amount:t.net_pnl}].map(r=>({item:r.item,net_pnl:Math.round(r.amount*100)/100})));
-  $("emaChartTitle").textContent=`Chart — ${t.date} (${emaTf()}m)`;
-  const key=t.date+"|"+emaTf();if(!emaChartCache[key])emaChartCache[key]=await j(`/api/ema921/${$("emaCfg").value}/chart?date=${t.date}&tf=${emaTf()}`);
-  candles("emaChart",emaChartCache[key],t)}
-function candles(id,bars,t){const svg=$(id),W=svg.clientWidth||700,H=340,P=46;if(!bars.length){svg.innerHTML="";return}
-  const css=getComputedStyle(document.documentElement),C=k=>css.getPropertyValue(k);
-  let lo=Math.min(...bars.map(b=>Math.min(b.low,b.ema9??b.low,b.ema21??b.low))),hi=Math.max(...bars.map(b=>Math.max(b.high,b.ema9??b.high,b.ema21??b.high)));const pad=(hi-lo)*0.05;lo-=pad;hi+=pad;
-  const n=bars.length,cw=(W-P-10)/n,x=i=>P+cw*i+cw/2,y=v=>8+(H-36)*(1-(v-lo)/(hi-lo));
-  let g="";for(let k=0;k<=4;k++){const v=lo+(hi-lo)*k/4;g+=`<line x1="${P}" x2="${W}" y1="${y(v)}" y2="${y(v)}" stroke="${C("--line")}"/><text x="2" y="${y(v)+3}" font-size="10" fill="${C("--muted")}">${v.toFixed(0)}</text>`}
-  bars.forEach((b,i)=>{const up=b.close>=b.open,col=up?C("--pos"):C("--neg");g+=`<line x1="${x(i)}" x2="${x(i)}" y1="${y(b.high)}" y2="${y(b.low)}" stroke="${col}"/><rect x="${x(i)-cw*0.35}" y="${y(Math.max(b.open,b.close))}" width="${Math.max(1,cw*0.7)}" height="${Math.max(1,Math.abs(y(b.open)-y(b.close)))}" fill="${col}"><title>${b.timestamp.slice(11,16)} O${b.open} H${b.high} L${b.low} C${b.close}</title></rect>`;
-    if(i%Math.ceil(n/8)===0)g+=`<text x="${x(i)}" y="${H-6}" font-size="10" text-anchor="middle" fill="${C("--muted")}">${b.timestamp.slice(11,16)}</text>`});
-  const ln=(k,col)=>`<polyline fill="none" stroke="${col}" stroke-width="1.6" points="${bars.map((b,i)=>b[k]==null?"":`${x(i)},${y(b[k])}`).join(" ")}"/>`;
-  g+=ln("ema9",C("--accent"))+ln("ema21",C("--warn"));
-  const tf=emaTf(),idxOf=ts=>{const T=new Date(ts).getTime();let best=-1;bars.forEach((b,i)=>{if(new Date(b.timestamp).getTime()+tf*60000<=T)best=i});return best};
-  const ei=idxOf(t.entry_ts),xi=idxOf(t.exit_ts),bull=t.direction==="BULLISH";
-  if(ei>=0)g+=`<text x="${x(ei)}" y="${y(t.nifty_entry)+(bull?16:-8)}" text-anchor="middle" font-size="15" fill="${bull?C("--pos"):C("--neg")}">${bull?"▲":"▼"}</text>`;
-  if(xi>=0)g+=`<text x="${x(xi)}" y="${y(t.nifty_exit)+5}" text-anchor="middle" font-size="15" fill="${C("--ink")}">✕</text>`;
-  svg.innerHTML=g}
-["emaCfg","emaMode","emaOut","emaCross","emaDir"].forEach(id=>$(id).onchange=()=>ema());
-document.addEventListener("keydown",e=>{if(tab!=="ema"||!emaRows.length)return;if(e.key==="ArrowDown"){e.preventDefault();emaShow(emaSel+1)}if(e.key==="ArrowUp"){e.preventDefault();emaShow(emaSel-1)}});
 (function(){let th=null;try{th=localStorage.getItem("nq-theme")}catch(_){};if(th)document.documentElement.dataset.theme=th;
   $("themeBtn").onclick=()=>{const cur=document.documentElement.dataset.theme||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");const nx=cur==="dark"?"light":"dark";document.documentElement.dataset.theme=nx;try{localStorage.setItem("nq-theme",nx)}catch(_){};refresh()}})();
 $("killBtn").onclick=async()=>{const r=prompt("Reason for kill switch?","manual");if(r==null)return;await fetch("/api/kill",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({reason:r})});refresh()};
 $("resumeBtn").onclick=async()=>{const c=prompt('Type RESUME to clear the kill switch');if(c==null)return;const r=await fetch("/api/kill/off",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({confirm:c})});if(!r.ok)alert("Not cleared");refresh()};
-async function refresh(){try{await health();const f={overview,pnl,market,research,backtests,ema,strategies,trades,health}[tab];if(f&&f!==health)await f()}catch(e){console.error(e)}}
+async function refresh(){try{await health();const f={overview,pnl,market,research,backtests,strategies,trades,health}[tab];if(f&&f!==health)await f()}catch(e){console.error(e)}}
 nav();show();setInterval(()=>{if(["overview","market","health","trades"].includes(tab))refresh()},10000);
 </script>
 </body>

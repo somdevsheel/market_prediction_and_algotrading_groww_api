@@ -2,7 +2,8 @@
 
     python scripts/build_gold.py features                         # daily vol/regime/event features (+ next session row)
     python scripts/build_gold.py iv --start 2021-01-01 --end 2026-11-09   # ATM IV history from real option candles
-    python scripts/build_gold.py ml --start 2021-01-01 --end 2026-11-09 [--base breakout_vwap_v1]
+(The ML meta-labeling study showed no out-of-sample edge, AUC ~0.5; its runner is archived:
+ archive/scripts/research_suite.py. The pipeline itself stays in quant/machine_learning/.)
 """
 import _bootstrap  # noqa: F401
 
@@ -47,7 +48,7 @@ def load_ml_probs(cfg, model: str = "logistic", base: str = "breakout_vwap_v1") 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("what", choices=["features", "iv", "ml"])
+    ap.add_argument("what", choices=["features", "iv"])
     ap.add_argument("--start", default="2021-01-01")
     ap.add_argument("--end", default=datetime.now(IST).date().isoformat())
     ap.add_argument("--base", default="breakout_vwap_v1")
@@ -88,23 +89,6 @@ def main() -> int:
                               cfg["settings"]["backtest"]["risk_free_rate"], cfg["instruments"]["strike_step"], existing)
         lake.write_gold("implied_volatility", "atm_iv_daily", df)
         print(f"{len(df)} days of ATM IV; failures {len(p.failures)}")
-    else:
-        p = GrowwProvider(cfg["settings"])
-        feats = load_features(cfg)
-        bt = Backtester(cfg, p, lake, "base", strategy_id=a.base, features=feats)
-        ds = ml.build_dataset(bt, date.fromisoformat(a.start), date.fromisoformat(a.end))
-        lake.write_gold("ml", f"dataset_{a.base}", ds)
-        P, M = ml.walk_forward(ds)
-        lake.write_gold("ml", f"oos_predictions_{a.base}", P)
-        lake.write_gold("ml", f"metrics_{a.base}", M)
-        print(f"samples {len(ds)}  label rate {ds['label'].mean():.3f}")
-        print(M.to_string(index=False))
-        mp = resolve_path(cfg, "ledger_db").parent / "models" / f"ml_{a.base}_{a.final_model}.pkl"
-        ml.fit_final(ds, a.final_model, mp, {"base_strategy": a.base, "model": a.final_model, "samples": len(ds),
-                                             "train_start": a.start, "train_end": a.end,
-                                             "trained_at": datetime.now(IST).isoformat(),
-                                             "oos_metrics": M.to_dict("records")})
-        print("final model ->", mp)
     return 0
 
 

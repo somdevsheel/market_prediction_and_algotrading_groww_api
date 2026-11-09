@@ -10,7 +10,7 @@ python3 scripts/run_trader.py
 Daily automation: `python3 apps/worker/scheduler.py` (pre-market check 08:50, worker 09:05, EOD ingest + IV +
 features + backup 15:45, trading days only). Keep it running in a terminal, tmux or a systemd user service.
 Research: `python3 scripts/bulk_ingest.py …`, `python3 scripts/build_gold.py iv|features|ml`,
-`python3 scripts/research_suite.py --start 2021-01-01 --end <date>`.
+`python3 scripts/backtest_strategy.py --capital 20000 --risk 1000` (archived research runners: `archive/scripts/`).
 
 Docker: `docker compose up api` and `docker compose run worker` (state, data lake and logs are host volumes).
 Keep the API bound to 127.0.0.1 — it has no authentication and exposes the kill switch.

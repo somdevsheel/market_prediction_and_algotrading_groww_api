@@ -25,15 +25,21 @@ open position and blocks entries. Clear with `--off`.
 python3 apps/worker/scheduler.py     # 08:50 checks, 09:05 paper worker, 15:45 EOD ingest + features + backup
 ```
 
-## Research
+## Strategy
+One validated strategy is active: **`orb_retest30_cheapiv_v1`** (30-min ORB retest, bought only when option IV ≤
+GARCH forecast). Rules, evidence, risks and the live runbook: `docs/STRATEGY_AND_LIVE_RUNBOOK.md`.
+Strategies that failed real-option testing are in `archive/` (see `archive/README.md`).
+
+## Research / maintenance
 ```bash
-python3 scripts/bulk_ingest.py --start 2020-01-01 --end 2026-11-09 --intervals 5minute,1day
-python3 scripts/build_gold.py iv --start 2021-01-01        # ATM IV history from real option candles
-python3 scripts/build_gold.py features                     # HV/EWMA/GARCH/VIX/IV/HMM/events (+ next session)
-python3 scripts/research_suite.py --start 2021-01-01 --end 2026-11-06   # experiments A–I, ML, walk-forward
-python3 scripts/promote_strategy.py --list                 # governance status
-python3 scripts/backup.py                                  # verified backup
-python3 -m pytest                                          # 79 tests
+python3 scripts/backtest_strategy.py --capital 20000 --risk 1000   # reproduce the strategy backtest
+python3 scripts/bulk_ingest.py --start 2026-11-01 --end <today> --intervals 1minute,5minute,1day
+python3 scripts/build_gold.py iv --start 2026-11-01                # ATM IV history from real option candles
+python3 scripts/build_gold.py features                             # GARCH/HV/VIX/HMM/events (+ next session)
+python3 scripts/promote_strategy.py --list                         # governance status
+python3 scripts/live_smoke_test.py                                 # zero-cost live broker check (market hours)
+python3 scripts/backup.py                                          # verified backup
+python3 -m pytest                                                  # test suite
 ```
 The dashboard can also launch backtests (Backtests tab) and compare runs.
 

@@ -52,7 +52,7 @@ def compute_metrics(trades: pd.DataFrame, capital: float, trading_days: int | No
         h = (pd.to_datetime(t.exit_time) - pd.to_datetime(t.entry_time)).dt.total_seconds() / 60
         hold = float(h.mean())
     by = lambda col: {str(k): {"trades": int(len(g)), "net_pnl": round(float(g.net_pnl.sum()), 2),  # noqa: E731
-                               "win_rate": round(float((g.net_pnl > 0).mean() * 100), 1)} for k, g in t.groupby(col)}
+                               "win_rate": round(float((g.net_pnl > 0).mean() * 100), 1)} for k, g in t.groupby(col, observed=True)}
     t["month"] = pd.to_datetime(t.trading_day).dt.strftime("%Y-%m")
     t["year"] = pd.to_datetime(t.trading_day).dt.year
     out = {

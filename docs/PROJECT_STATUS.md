@@ -17,9 +17,10 @@
 | 12 | Monitoring & recovery | ✅ | alerts (ledger + webhook), Prometheus /metrics, freshness/connectivity/stuck-order checks, token auto-refresh, verified backups, scheduler, restart reconciliation |
 | 13 | Live approval | 🔒 | governance requires OOS-validated + ≥20 profitable paper trades + config-hash match + same-day approval; funds ₹600 |
 
-## Research results
-See the latest `data/backtests/research_*/report.json` (Dashboard → Backtests). Summary is added below when the
-2021–2026 suite completes.
+## Active strategy (after cleanup, 2026-11-09)
+Only `orb_retest30_cheapiv_v1` is active: +₹44,810 on real options 2021–2026 (₹20k / ₹1,000 risk, conservative
+costs), PF 1.23, max DD −₹22,802, lost in 2024 and 2025. Every other strategy tested (A, B, C, D/E/H/I, ORB video
+setups, 9/21 EMA variants, ML meta-labeling) failed on real options and is archived in `archive/` with its results.
 
 ## Spec deviations
 No Zerodha (excluded by the user) · static HTML dashboard instead of React/Next.js · SQLite instead of

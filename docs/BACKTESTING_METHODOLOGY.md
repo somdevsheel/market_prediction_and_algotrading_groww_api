@@ -16,27 +16,11 @@
 * **Validation**: chronological IS/OOS split (last 30 % of days OOS), Monte Carlo trade-order shuffle for
   drawdown distribution, bootstrap CI of expectancy, per-month/year/regime/exit-reason/expiry-day breakdowns.
 
-## Experiments (config only, no code changes)
-| id | strategy | definition |
-|---|---|---|
-| A | sr_breakout_v1 | prior-day H/L, opening range, confirmed swing levels |
-| B | breakout_vwap_v1 | OR breakout + futures VWAP + volume + 15m EMA context |
-| C | breakout_retest_v1 | OR breakout → retest holds → confirmation |
-| D | vol_filtered_v1 | B + HV ratio band, GARCH forecast floor, VIX band, RV/IV ≥ 0.9, contract IV ≤ 1.25×forecast, event block |
-| E | regime_filtered_v1 | B + HMM regime aligned with direction + event block |
-| H | ml_confirmed_v1 | B + walk-forward ML probability ≥ 0.45 (probabilities are strictly out-of-sample) |
-| I | combined_v1 | B + D + E + H filters |
-D/E/H/I are evaluated by passing B's causal signals through the filters (identical to running the filtered
-strategy because filters act only after a base signal).
-
-## Robustness suite (`scripts/research_suite.py`)
-* 3 cost scenarios per experiment with the real ₹20k constraint, plus a research-capital run (₹10 L) to
-  measure per-trade edge without the funding constraint.
-* Parameter grid (buffer × volume multiplier) and exit sensitivity (reward:risk 1.5/2/3).
-* Walk-forward: 12-month train / 3-month test; on each fold the combo with the best training expectancy is
-  chosen and only its *next* test window counts.
-* Cost sensitivity (charges × 0–2), data-quality sensitivity (randomly drop 5 %/10 % of option candles).
-* Year-by-year, regime (rule + HMM), days-to-expiry, CE/PE, exit-reason breakdowns.
+## Active strategy backtest
+`scripts/backtest_strategy.py` generates ORB signals with `strategies/orb/orb_core.py` (same code as live), then
+the backtester applies the contract-level IV filter, the risk engine and real 1-minute option candles. The
+experiment suite (A–I), walk-forward/sensitivity runner and the EMA/ORB-video studies are archived in
+`archive/` together with their results.
 
 ## Metric definitions
 net P&L = Σ(gross − charges); ROI = net / capital; win rate = share of trades with net > 0; expectancy = net / trades;

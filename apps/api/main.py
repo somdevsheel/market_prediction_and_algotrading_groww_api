@@ -419,16 +419,6 @@ def compare_backtests(ids: str):
     return _clean(out)
 
 
-@app.get("/api/research/report")
-def research_report():
-    reps = sorted(_bt_root().glob("research_*/report.json"))
-    if not reps:
-        return {"note": "no research report yet: python scripts/research_suite.py"}
-    r = json.loads(reps[-1].read_text())
-    r["path"] = str(reps[-1].parent.name)
-    return _clean(r)
-
-
 @app.get("/api/research/models")
 def research_models():
     """Next-session model forecasts, HMM regime, RV vs IV series, model evaluation (from gold tables)."""
@@ -531,75 +521,3 @@ def data_quality():
     return _clean(rep)
 
 
-# ====================================================================== 9/21 EMA trade viewer
-from functools import lru_cache  # noqa: E402
-
-
-def _ema_root() -> Path:
-    return _bt_root() / "ema921"
-
-
-@lru_cache(maxsize=16)
-def _ema_trades(cfg_name: str, mtime: float) -> pd.DataFrame:  # mtime busts the cache when results change
-    return pd.read_json(_ema_root() / cfg_name / "trades.json")
-
-
-@app.get("/api/ema921/configs")
-def ema_configs():
-    out = []
-    for d in sorted(_ema_root().glob("*/summary.json")):
-        s = json.loads(d.read_text())
-        out.append({"name": d.parent.name, **s["config"], "modes": {m: {k: v.get(k) for k in (
-            "trades", "net_pnl", "profit_factor", "win_rate")} for m, v in s["modes"].items()}})
-    return _clean(out)
-
-
-@app.get("/api/ema921/{name}/summary")
-def ema_summary(name: str):
-    p = _ema_root() / Path(name).name / "summary.json"
-    if not p.exists():
-        raise HTTPException(404)
-    return _clean(json.loads(p.read_text()))
-
-
-@app.get("/api/ema921/{name}/trades")
-def ema_trades(name: str, mode: str = "ATM_BUY", outcome: str = "all", cross: int = 0, direction: str = "all"):
-    p = _ema_root() / Path(name).name / "trades.json"
-    if not p.exists():
-        raise HTTPException(404)
-    t = _ema_trades(Path(name).name, p.stat().st_mtime)
-    t = t[(t["mode"] == mode)]
-    if "skip" in t:
-        t = t[t["skip"].isna()]
-    if outcome == "win":
-        t = t[t["net_pnl"] > 0]
-    elif outcome == "loss":
-        t = t[t["net_pnl"] <= 0]
-    if cross:
-        t = t[t["cross_no"] == cross] if cross < 4 else t[t["cross_no"] >= 4]
-    if direction != "all":
-        t = t[t["direction"] == direction]
-    from backtesting.engine.ema_options import metrics
-
-    rows = t.sort_values("entry_ts").to_dict("records")
-    return _clean({"kpis": metrics(t.sort_values("entry_ts")) if len(t) else {"trades": 0}, "trades": rows})
-
-
-@app.get("/api/ema921/{name}/chart")
-def ema_chart(name: str, date: str, tf: int):
-    """Spot candles at the strategy timeframe for the trade day with EMA9/EMA21 (warmed up on prior days)."""
-    from datetime import date as _d
-
-    from ingestion.historical.datalake import DataLake
-    from strategies.ema_cross.core import resample, with_emas
-
-    lake = DataLake(resolve_path(CFG, "data_lake"))
-    d = _d.fromisoformat(date)
-    df = lake.read_silver("nifty", "NSE-NIFTY", "1minute", datetime.combine(d - timedelta(days=10), datetime.min.time(), IST),
-                          datetime.combine(d, datetime.max.time(), IST))
-    if df.empty:
-        raise HTTPException(404, "no data for that day")
-    b = with_emas(resample(df[["timestamp", "open", "high", "low", "close"]], tf))
-    b = b[b["timestamp"].dt.date == d]
-    b["timestamp"] = b["timestamp"].astype(str)
-    return _clean(b[["timestamp", "open", "high", "low", "close", "ema9", "ema21", "cross"]].to_dict("records"))

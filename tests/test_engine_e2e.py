@@ -56,8 +56,9 @@ class FakeProvider:
 @pytest.fixture
 def env(tmp_path):
     cfg = copy.deepcopy(load_config())
-    cfg["strategies"]["active_strategy"] = "breakout_vwap_v1"
-    cfg["strategies"]["strategies"]["breakout_vwap_v1"]["params"]["use_context_filter"] = False
+    from tests.fake_strategy import install
+
+    install(cfg, "09:45")  # signals at the 09:45 candle close (09:50), like the original breakout fixture
     cfg["settings"]["paths"]["kill_switch_file"] = str(tmp_path / "KILL")
     clock = FrozenClock(datetime(2026, 11, 11, 9, 0, tzinfo=IST))
     prov = FakeProvider(clock)

@@ -61,7 +61,7 @@ There is **no fixed profit target**. Winners run until the stop or 15:15.
 | Period | 2021-01-01 to 2026-11-06 |
 | Fills | next-minute open ± half-spread + slippage ticks (simulated, not actual historical fills) |
 | Charges | brokerage ₹20/order, STT, exchange, SEBI, stamp, IPFT, GST |
-| Run IDs | `data/backtests/*retest30_cheapIV_sq1515-20k_account_risk_1000*` |
+| Reproduce | `python3 scripts/backtest_strategy.py --capital 20000 --risk 1000` (results in `data/backtests/`) |
 
 ### 2.2 Results (₹20,000 account, ₹1,000 risk cap, 15:15 exit)
 | Metric | Base costs | Conservative costs |
@@ -108,7 +108,7 @@ There is **no fixed profit target**. Winners run until the stop or 15:15.
   - the range-size filter for the 60-min breakout does not generalise
   - the retest timing filter does
 
-Reports: `data/backtests/orb_spot_*/report.json`, `data/backtests/orb_options_*/report.json`.
+Reports of the rejected studies: `archive/backtests/` (see `archive/README.md`).
 
 ---
 

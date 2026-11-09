@@ -1,151 +1,18 @@
-# Strategy registry + governance. Changing params/filters of a strategy REQUIRES bumping its version.
+# Strategy registry + governance. Changing params/filters of a strategy REQUIRES bumping its version
+# (live approval is tied to the config hash). Retired/unprofitable strategies: archive/config/strategies_retired.yaml
 # status: RESEARCH | BACKTESTED | OUT_OF_SAMPLE_VALIDATED | PAPER_TRADING | APPROVED_FOR_LIVE | RETIRED
 active_strategy: orb_retest30_cheapiv_v1
 
-_breakout_params: &bp
-  opening_range_minutes: 15
-  breakout_buffer_points: 5
-  min_body_ratio: 0.5
-  volume_lookback: 6
-  volume_multiplier: 1.2
-  context_ema: 20
-  max_or_width_points: 250
-  min_or_width_points: 15
-  max_extension_points: 60
-  require_fresh_breakout: true
-  use_volume_filter: true
-  use_vwap_filter: true
-  use_context_filter: true
-  block_regimes: [unstable]
-  vix_unstable_level: 25
-
 strategies:
-  sr_breakout_v1:                      # Strategy A
-    class: sr_breakout
-    status: RESEARCH
-    version: "1.0.0"
-    description: Support/resistance breakout (prior-day H/L, opening range, confirmed swings).
-    params: {<<: *bp, use_vwap_filter: false, use_volume_filter: false, use_context_filter: false, use_swings: true}
-
-  breakout_vwap_v1:                    # Strategy B
-    class: breakout_vwap
-    # 2026-11-09 backtest (2026-05-04..2026-11-09, real option candles): negative in all 12 experiment/cost
-    # combinations; default (B2/base) 54 trades, net -3,957, PF 0.86, maxDD -8,202. NOT approved for live.
-    status: BACKTESTED
-    version: "1.0.0"
-    description: >
-      Opening-range breakout on completed 5-minute NIFTY candles, confirmed by near-month futures VWAP,
-      futures volume expansion and 15-minute EMA context.
-    params: *bp
-
-  breakout_retest_v1:                  # Strategy C
-    class: breakout_retest
-    status: RESEARCH
-    version: "1.0.0"
-    description: Opening-range breakout, retest of the level that holds, then confirmation close.
-    params: {<<: *bp, use_context_filter: false, retest_tolerance_points: 8, max_bars_after_breakout: 12}
-
-  vol_filtered_v1:                     # Strategy D
-    class: breakout_vwap
-    status: RESEARCH
-    version: "1.0.0"
-    description: Strategy B + volatility filters (HV regime, GARCH forecast, VIX band, options cheap vs forecast).
-    params: *bp
-    filters:
-      hv_ratio_range: [0.8, 2.5]
-      min_garch_fc: 11
-      vix_range: [11, 24]
-      min_rv_iv_ratio: 0.9
-      contract_iv_max_over_rv: 1.25
-      rv_forecast_feature: garch_fc
-      block_events: [rbi_policy, budget, election, cpi]
-
-  regime_filtered_v1:                  # Strategy E
-    class: breakout_vwap
-    status: RESEARCH
-    version: "1.0.0"
-    description: Strategy B traded only in HMM regimes aligned with the trade direction.
-    params: *bp
-    filters:
-      allowed_hmm: {BULLISH: [hmm_bullish, hmm_neutral], BEARISH: [hmm_bearish, hmm_neutral_highvol, hmm_neutral]}
-      block_events: [rbi_policy, budget, election]
-
-  ml_confirmed_v1:                     # Experiment H
-    class: breakout_vwap
-    status: RESEARCH
-    version: "1.0.0"
-    description: Strategy B confirmed by walk-forward ML probability of reaching target before invalidation.
-    params: *bp
-    filters: {min_ml_prob: 0.45}
-
-  combined_v1:                         # Experiment I
-    class: breakout_vwap
-    status: RESEARCH
-    version: "1.0.0"
-    description: Strategy B + volatility + regime + ML filters.
-    params: *bp
-    filters:
-      hv_ratio_range: [0.8, 2.5]
-      min_garch_fc: 11
-      min_rv_iv_ratio: 0.9
-      contract_iv_max_over_rv: 1.25
-      rv_forecast_feature: garch_fc
-      allowed_hmm: {BULLISH: [hmm_bullish, hmm_neutral], BEARISH: [hmm_bearish, hmm_neutral_highvol, hmm_neutral]}
-      block_events: [rbi_policy, budget, election, cpi]
-      min_ml_prob: 0.45
-
-  # ---- ORB setups from the user's research brief (spot-point study 2020-2026, 1-minute candles).
-  # Stop = opposite OR boundary (underlying, touch), no fixed target, time exit. risk_overrides apply to this
-  # strategy only. NOTE: the OR-boundary stop usually exceeds the default Rs 1,000 risk budget for one lot.
-  orb_breakout60_v1:
-    class: orb
-    status: RESEARCH
-    version: "1.0.0"
-    description: 60-min ORB, first 1m close beyond the range; range > 0.5% of open; entry before 12:00.
-    params: {mode: breakout, or_minutes: 60, orb_filters: {min_range_pct: 0.5, entry_before: "12:00"}}
-    risk_overrides: {reward_risk: 50}
-  orb_retest30_v1:
-    class: orb
-    status: RESEARCH
-    version: "1.0.0"
-    description: 30-min ORB retest (break, close back inside, break again); range <= 0.5%; within 60 min of first break.
-    params: {mode: retest, or_minutes: 30, orb_filters: {max_range_pct: 0.5, max_gap_minutes: 60}}
-    risk_overrides: {reward_risk: 50}
-  orb_reversal5_v1:
-    class: orb
-    status: RESEARCH
-    version: "1.0.0"
-    description: 5-min ORB reversal (break one side, then close beyond the other side); entry before 12:00.
-    params: {mode: reversal, or_minutes: 5, orb_filters: {entry_before: "12:00"}}
-    risk_overrides: {reward_risk: 50}
   orb_retest30_cheapiv_v1:
     class: orb
     # 2026-11-09 backtest 2021-01-01..2026-11-06, real 1-minute option candles, Rs 20k / Rs 1,000 cap, 15:15 exit:
     # 277 trades, net +44,810 (conservative costs), PF 1.23, maxDD -22,802; lost in 2024 and 2025.
-    # Found after testing several variants (selection bias) -> must prove itself in paper trading first.
+    # Found after testing several variants (selection bias) -> must prove itself in paper/live with 1 lot.
+    # Reproduce: python3 scripts/backtest_strategy.py
     status: BACKTESTED
     version: "1.0.0"
     description: 30-min ORB retest (range <= 0.5%, retest within 60 min) taken only when option IV <= GARCH forecast.
     params: {mode: retest, or_minutes: 30, orb_filters: {max_range_pct: 0.5, max_gap_minutes: 60}}
     filters: {contract_iv_max_over_rv: 1.0, rv_forecast_feature: garch_fc}
     risk_overrides: {reward_risk: 50}
-
-  # ---- 9/21 EMA crossover (from the user's "9/21 automated system" prompt). Buy modes only for live/paper.
-  ema921_15m_atm_v1:
-    class: ema_cross
-    status: RESEARCH
-    version: "1.0.0"
-    description: 9/21 EMA cross on 15m closed bars (resampled from 1m), window 10:30-13:30, exit opposite cross or 15:00, ATM buy, reversal.
-    params: {tf: 15, start: "10:30", cutoff: "13:30"}
-    contract_overrides: {itm_steps: 0, avoid_expiry_day: true}
-    risk_overrides: {reward_risk: 50, max_trades_per_day: 6}
-    square_off: "15:00"
-  ema921_30m_itm5_v1:
-    class: ema_cross
-    status: RESEARCH
-    version: "1.0.0"
-    description: 9/21 EMA cross on 30m closed bars, window 10:00-13:30, exit opposite cross or 15:00, deep ITM-5 buy, reversal.
-    params: {tf: 30, start: "10:00", cutoff: "13:30"}
-    contract_overrides: {itm_steps: 5, avoid_expiry_day: true, max_premium: 1200}
-    risk_overrides: {reward_risk: 50, max_trades_per_day: 6, max_premium_outlay: 80000}
-    square_off: "15:00"

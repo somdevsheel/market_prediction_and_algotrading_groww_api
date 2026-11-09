@@ -129,7 +129,7 @@ class TradingEngine:
             return
         from quant.machine_learning import pipeline as ml
 
-        base_id = self.scfg.get("ml_base", "breakout_vwap_v1")
+        base_id = self.scfg.get("ml_base", self.strategy.strategy_id)
         mp = resolve_path(self.cfg, "ledger_db").parent / "models" / f"ml_{base_id}_{self.scfg.get('ml_model', 'logistic')}.pkl"
         if not mp.exists():
             log.warning("ML model %s missing: ML-filtered signals will be rejected", mp)
