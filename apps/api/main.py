@@ -242,7 +242,9 @@ def backtests():
                         "trades", "net_pnl", "roi_pct", "win_rate_pct", "profit_factor", "expectancy",
                         "max_drawdown", "sharpe", "charges")},
                     "oos_net": (rob.get("out_of_sample") or {}).get("net_pnl"),
-                    "is_net": (rob.get("in_sample") or {}).get("net_pnl")})
+                    "is_net": (rob.get("in_sample") or {}).get("net_pnl"),
+                    "payoff_ratio": round(m["avg_win"] / -m["avg_loss"], 2) if m.get("avg_win") and m.get("avg_loss") else None,
+                    "avg_charges_per_trade": round(m["charges"] / m["trades"], 2) if m.get("trades") and m.get("charges") else None})
     return _clean(out)
 
 
@@ -252,7 +254,11 @@ def backtest(run_id: str):
     if not (d / "summary.json").exists():
         raise HTTPException(404)
     s = json.loads((d / "summary.json").read_text())
-    s["trades"] = pd.read_csv(d / "trades.csv").to_dict("records") if (d / "trades.csv").stat().st_size > 1 else []
+    tdf = pd.read_csv(d / "trades.csv") if (d / "trades.csv").stat().st_size > 1 else pd.DataFrame()
+    if len(tdf):  # recompute so older runs also get payoff / R-multiple / per-trade charge metrics
+        s["metrics"] = {**s.get("metrics", {}), **compute_metrics(tdf, float(s["config"]["risk"]["capital"]),
+                                                                   s["metrics"].get("trading_days_in_sample"))}
+    s["trades"] = tdf.to_dict("records")
     s["equity"] = pd.read_csv(d / "equity.csv").to_dict("records") if (d / "equity.csv").stat().st_size > 1 else []
     return _clean(s)
 
@@ -505,3 +511,39 @@ def data_quality():
     return _clean(rep)
 
 
+
+
+CHARGE_INFO = {
+    "brokerage": ("Groww", "₹20 per executed order (buy and sell are separate orders)"),
+    "stt": ("Government (Securities Transaction Tax)", "0.1% of the SELL-side premium"),
+    "exchange": ("NSE transaction charge", "0.03503% of total premium turnover (buy + sell)"),
+    "sebi": ("SEBI turnover fee", "₹10 per crore = 0.0001% of turnover"),
+    "stamp": ("State stamp duty", "0.003% of the BUY-side premium"),
+    "ipft": ("NSE Investor Protection Fund", "0.0005% of turnover"),
+    "gst": ("Government GST", "18% on brokerage + exchange + SEBI + IPFT"),
+}
+
+
+@app.get("/api/charges")
+def charges(entry: float = 250.0, exit: float = 260.0, lots: int = 1):
+    """Round-trip option-buying charges for a given premium path (rates from config/instruments.yaml)."""
+    from backtesting.costs.charges import option_charges
+
+    cfg = CFG["instruments"]["charges"]
+    lot = 65
+    try:
+        from backtesting.engine.backtester import lot_size_on
+
+        lot = lot_size_on(datetime.now(IST).date(), CFG["instruments"]["lot_size_schedule"])
+    except Exception:  # noqa: BLE001
+        pass
+    qty = lot * max(1, lots)
+    b = option_charges(entry * qty, exit * qty, cfg)
+    gross = (exit - entry) * qty
+    rows = [{"component": k, "amount": v, "paid_to": CHARGE_INFO[k][0], "rule": CHARGE_INFO[k][1]}
+            for k, v in b.to_dict().items() if k != "total"]
+    return _clean({"entry": entry, "exit": exit, "qty": qty, "lot_size": lot, "buy_value": entry * qty,
+                   "sell_value": exit * qty, "gross_pnl": gross, "total_charges": b.total, "net_pnl": gross - b.total,
+                   "breakeven_move_points": round(b.total / qty, 2), "components": rows, "rates": cfg,
+                   "note": "Rates are configured in config/instruments.yaml; verify against Groww/NSE periodically. "
+                           "Slippage (spread) is a separate cost, not a charge."})

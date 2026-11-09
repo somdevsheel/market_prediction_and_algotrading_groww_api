@@ -69,6 +69,17 @@ def compute_metrics(trades: pd.DataFrame, capital: float, trading_days: int | No
         "calmar": round((cagr or 0) / abs(max_dd / peak_eq), 3) if max_dd < 0 and cagr is not None else None,
         "max_consecutive_wins": bw, "max_consecutive_losses": bl,
         "avg_holding_minutes": round(hold, 1) if hold is not None else None,
+        "payoff_ratio": round(float(wins.net_pnl.mean() / -losses.net_pnl.mean()), 3)
+        if len(wins) and len(losses) and losses.net_pnl.mean() < 0 else None,
+        "breakeven_win_rate_pct": round(100 / (1 + float(wins.net_pnl.mean() / -losses.net_pnl.mean())), 1)
+        if len(wins) and len(losses) and losses.net_pnl.mean() < 0 else None,
+        "avg_charges_per_trade": round(charges / n, 2),
+        "avg_r_multiple": round(float((t.net_pnl / t.planned_risk).mean()), 3)
+        if "planned_risk" in t and (t.planned_risk > 0).all() else None,
+        "avg_win_r": round(float((wins.net_pnl / wins.planned_risk).mean()), 2)
+        if "planned_risk" in t and len(wins) and (wins.planned_risk > 0).all() else None,
+        "avg_loss_r": round(float((losses.net_pnl / losses.planned_risk).mean()), 2)
+        if "planned_risk" in t and len(losses) and (losses.planned_risk > 0).all() else None,
         "cost_impact_pct_of_gross": round(charges / abs(gross) * 100, 2) if gross else None,
         "trading_days_in_sample": days,
         "by_option_type": by("option_type"), "by_month": by("month"), "by_year": by("year"),

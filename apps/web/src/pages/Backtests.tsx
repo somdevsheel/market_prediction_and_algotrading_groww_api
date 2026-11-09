@@ -71,6 +71,8 @@ export default function Backtests({ theme }: { theme: string }) {
               { key: "trades", label: "Trades", num: true },
               { key: "net_pnl", label: "Net", num: true, render: (r) => <span className={tone(r.net_pnl)}>{inr(r.net_pnl)}</span> },
               { key: "profit_factor", label: "PF", num: true }, { key: "win_rate_pct", label: "Win %", num: true },
+              { key: "payoff_ratio", label: "R:R", num: true, render: (r) => (r.payoff_ratio ? `${num(r.payoff_ratio, 2)}:1` : "—") },
+              { key: "avg_charges_per_trade", label: "Charges/trade", num: true, render: (r) => inr(r.avg_charges_per_trade, 0) },
               { key: "max_drawdown", label: "Max DD", num: true, render: (r) => inr(r.max_drawdown) },
               { key: "oos_net", label: "OOS net", num: true, render: (r) => <span className={tone(r.oos_net)}>{inr(r.oos_net)}</span> },
             ]} />
@@ -106,6 +108,9 @@ export default function Backtests({ theme }: { theme: string }) {
                 <Stat k="Win rate" v={pct(m.win_rate_pct)} s={`avg win ${inr(m.avg_win)} · loss ${inr(m.avg_loss)}`} />
                 <Stat k="Profit factor" v={num(m.profit_factor, 2)} />
                 <Stat k="Max drawdown" v={inr(m.max_drawdown)} tone={tone(m.max_drawdown)} />
+                <Stat k="Risk : reward (payoff)" v={m.payoff_ratio ? `${num(m.payoff_ratio, 2)} : 1` : "—"} s={`break-even win rate ${pct(m.breakeven_win_rate_pct)}`} />
+                <Stat k="Expectancy" v={`${inr(m.expectancy)} · ${num(m.avg_r_multiple, 2)}R`} tone={tone(m.expectancy)} />
+                <Stat k="Charges / trade" v={inr(m.avg_charges_per_trade, 2)} s={`${num(m.cost_impact_pct_of_gross, 1)}% of gross P&L`} />
               </div>
               <div className="section"><Chart series={dEq} theme={theme} /></div>
               <div className="section">
@@ -114,6 +119,8 @@ export default function Backtests({ theme }: { theme: string }) {
                   { key: "entry_time", label: "Entry", render: (r) => String(r.entry_time).slice(11, 16) }, { key: "entry_price", label: "Entry ₹", num: true },
                   { key: "exit_time", label: "Exit", render: (r) => String(r.exit_time).slice(11, 16) }, { key: "exit_price", label: "Exit ₹", num: true },
                   { key: "exit_reason", label: "Exit reason" }, { key: "iv_at_entry", label: "IV", num: true },
+                  { key: "r", label: "R", num: true, value: (r) => r.net_pnl / r.planned_risk, render: (r) => (r.planned_risk ? `${(r.net_pnl / r.planned_risk).toFixed(2)}R` : "—") },
+                  { key: "charges", label: "Charges", num: true, render: (r) => inr(r.charges, 2) },
                   { key: "net_pnl", label: "Net", num: true, render: (r) => <span className={tone(r.net_pnl)}>{inr(r.net_pnl)}</span> },
                 ]} />
               </div>

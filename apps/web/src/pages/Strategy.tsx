@@ -3,6 +3,7 @@ import { api } from "../api";
 import { Chart } from "../components/Chart";
 import { DataTable } from "../components/DataTable";
 import { Card, Chip, Stat, State } from "../components/ui";
+import { ChargesCard } from "../components/Charges";
 import { inr, num, pct, time, tone } from "../format";
 import { usePoll } from "../hooks";
 
@@ -18,6 +19,7 @@ export default function Strategy({ theme }: { theme: string }) {
   const eq = useMemo(() => [{ name: "Equity", type: "area" as const, color: "--pos",
     data: (detail.data?.equity || []).map((e: any) => ({ time: e.date, value: e.equity })) }], [detail.data]);
   const years = Object.entries(detail.data?.metrics?.by_year || {}).map(([y, v]: any) => ({ year: y, ...v }));
+  const dm = detail.data?.metrics || {};
   const p = active?.params || {};
   const tones: Record<string, "ok" | "warn" | "bad" | ""> = { APPROVED_FOR_LIVE: "ok", PAPER_TRADING: "warn", BACKTESTED: "warn", RESEARCH: "", RETIRED: "bad" };
 
@@ -59,6 +61,16 @@ export default function Strategy({ theme }: { theme: string }) {
                       <Stat k="Max drawdown" v={inr(best.max_drawdown)} tone={tone(best.max_drawdown)} />
                       <Stat k="Out-of-sample (last 30%)" v={inr(best.oos_net)} tone={tone(best.oos_net)} />
                     </div>
+                    <h2 style={{ margin: "18px 0 10px", fontSize: 13, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 0.6 }}>Risk : reward</h2>
+                    <div className="grid">
+                      <Stat k="Payoff ratio (avg win ÷ avg loss)" v={dm.payoff_ratio ? `${num(dm.payoff_ratio, 2)} : 1` : "—"} s={`avg win ${inr(dm.avg_win)} · avg loss ${inr(dm.avg_loss)}`} />
+                      <Stat k="Break-even win rate" v={pct(dm.breakeven_win_rate_pct)} s={`actual ${pct(dm.win_rate_pct)} → ${dm.win_rate_pct > dm.breakeven_win_rate_pct ? "edge" : "no edge"}`}
+                            tone={dm.win_rate_pct > dm.breakeven_win_rate_pct ? "pos" : "neg"} />
+                      <Stat k="Planned risk per trade" v="1R ≈ ₹1,000" s="no fixed target: winners run to the range stop or 15:15" />
+                      <Stat k="Avg winner / loser (R)" v={`${num(dm.avg_win_r, 2)}R / ${num(dm.avg_loss_r, 2)}R`} />
+                      <Stat k="Expectancy per trade" v={`${inr(dm.expectancy)} · ${num(dm.avg_r_multiple, 2)}R`} tone={tone(dm.expectancy)} />
+                      <Stat k="Max consecutive losses" v={num(dm.max_consecutive_losses, 0)} s={dm.max_consecutive_losses ? `≈ ${inr(dm.max_consecutive_losses * 1000)} at 1R` : ""} />
+                    </div>
                     <div className="cols-3 section">
                       <div><Chart series={eq} theme={theme} /></div>
                       <DataTable rows={years} cols={[
@@ -72,6 +84,7 @@ export default function Strategy({ theme }: { theme: string }) {
               </State>
             </Card>
           </div>
+          <div className="section"><ChargesCard avgPerTrade={dm.avg_charges_per_trade} total={dm.charges} impactPct={dm.cost_impact_pct_of_gross} /></div>
           <div className="section banner warn">
             Selection bias: this was the best of many tested variants, and 10 trades produced more than its total profit.
             Expect live results to be weaker; trade 1 lot, every day, and judge over months.
