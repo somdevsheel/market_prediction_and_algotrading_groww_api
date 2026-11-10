@@ -83,3 +83,14 @@ pre { margin: 0; font: 12px/1.45 "JetBrains Mono", monospace; white-space: pre-w
   .cols-2, .cols-3 { grid-template-columns: 1fr; }
   .content, .top { padding-left: 16px; padding-right: 16px; }
 }
+
+/* stock type-ahead */
+.ac { position: relative; text-transform: none; letter-spacing: normal; font-weight: 400; }
+.ac-list { position: absolute; right: 0; top: calc(100% + 4px); width: 380px; max-width: 90vw; max-height: 380px; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); z-index: 50; }
+.ac-head { position: sticky; top: 0; background: var(--panel-2); padding: 6px 10px; font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--line); }
+.ac-item { display: flex; gap: 10px; align-items: center; padding: 7px 10px; cursor: pointer; font-size: 13px; color: var(--ink); }
+.ac-item.on { background: var(--chip); }
+.ac-sym { font-family: "JetBrains Mono", ui-monospace, monospace; min-width: 104px; }
+.ac-name { flex: 1; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ac-sig { font-size: 11px; font-weight: 600; }
+.ac mark { background: color-mix(in srgb, var(--accent) 30%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }

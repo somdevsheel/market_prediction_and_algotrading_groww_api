@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { api } from "../api";
 import { Chart } from "../components/Chart";
 import { Col, DataTable } from "../components/DataTable";
+import { StockItem, StockSearch } from "../components/StockSearch";
 import { Card, Chip, Seg, Stat, State } from "../components/ui";
 import { inr, num, pct, tone } from "../format";
 import { usePoll } from "../hooks";
@@ -17,9 +18,8 @@ const LABEL: Record<string, string> = {
 const name = (m: string) => LABEL[m] || m;
 const COLORS = ["--accent", "--pos", "--warn", "--neg", "--muted"];
 
-function Forecast({ sym, theme, onSym }: { sym: string; theme: string; onSym: (s: string) => void }) {
+function Forecast({ sym, theme, onSym, stocks }: { sym: string; theme: string; onSym: (s: string) => void; stocks: StockItem[] }) {
   const fc = usePoll(() => (sym ? api.get(`/api/stocks/forecast?sym=${encodeURIComponent(sym)}`) : Promise.resolve(null)), 0, [sym]);
-  const [text, setText] = useState("");
   const d = fc.data;
   const series = useMemo(() => {
     if (!d) return [];
@@ -53,9 +53,8 @@ function Forecast({ sym, theme, onSym }: { sym: string; theme: string; onSym: (s
   };
   return (
     <Card title={<>Price forecast · {d ? <><span className="mono">{d.sym}</span>&nbsp;{d.name || ""}&nbsp;· last close {inr(d.close, 2)} ({d.as_of})</> : sym || "pick a stock"}</>}
-      right={<form onSubmit={(e) => { e.preventDefault(); if (text.trim()) onSym(text.trim().toUpperCase()); }} style={{ textTransform: "none" }}>
-        <input placeholder="Symbol, e.g. TCS" value={text} onChange={(e) => setText(e.target.value)} style={{ width: 160 }} /></form>}>
-      <State loading={fc.loading && !fc.data} error={fc.error} empty={!sym && "Click any stock in the tables below, or type a symbol."}>
+      right={<StockSearch items={stocks} onPick={onSym} placeholder="Search stock — type a letter" width={260} />}>
+      <State loading={fc.loading && !fc.data} error={fc.error} empty={!sym && "Click any stock in the tables below, or search above."}>
         {d && (
           <>
             <div className="cols-2">
@@ -158,7 +157,7 @@ export default function Stocks({ theme }: { theme: string }) {
       </div>
 
       <div className="section">
-        <Forecast sym={selSym} theme={theme} onSym={setPick} />
+        <Forecast sym={selSym} theme={theme} onSym={setPick} stocks={sig.data?.rows || []} />
       </div>
 
       <div className="section">
