@@ -22,8 +22,42 @@ const COLORS = ["--accent", "--pos", "--warn", "--neg", "--muted"];
 
 type Marker = { time: string; position: "aboveBar" | "belowBar"; shape: "arrowUp" | "arrowDown"; color: string; text?: string };
 
-function Forecast({ sym, theme, onSym, stocks, markers, markerModel }: { sym: string; theme: string; onSym: (s: string) => void;
-  stocks: StockItem[]; markers: Marker[]; markerModel: string }) {
+const ACTION: Record<string, string> = {
+  BUY: "Model expects this stock to beat +4% next month → buy at the next open (if a portfolio slot is free).",
+  HOLD: "No strong view (−4% to +4%) → keep it if you own it, don't open a new position.",
+  SELL: "Model expects a fall of more than 4% next month → sell at the next open if you own it.",
+};
+
+function SignalPanel({ ms, model, chosen }: { ms: any; model: string; chosen: string }) {
+  const cur = (ms?.current || []).find((c: any) => c.model === model);
+  if (!ms) return null;
+  if (!cur) return <div className="banner" style={{ marginBottom: 12 }}>No BUY / HOLD / SELL signal today — this stock is outside the liquid universe (price ≥ ₹20, ≥ ₹2 crore traded per day).</div>;
+  const v = ms.votes || {};
+  const col = cur.signal === "BUY" ? "var(--pos)" : cur.signal === "SELL" ? "var(--neg)" : "var(--muted)";
+  return (
+    <div className="card" style={{ padding: 14, marginBottom: 12, borderLeft: `4px solid ${col}` }}>
+      <div style={{ display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap" }}>
+        <div>
+          <div className="muted" style={{ fontSize: 12 }}>Signal today · {name(model)}{model === chosen ? " ⭐ best model" : ""} · {ms.as_of}</div>
+          <div className="mono" style={{ fontSize: 34, fontWeight: 700, color: col, lineHeight: 1.15 }}>{cur.signal}</div>
+        </div>
+        <Stat k="P(BUY)" v={pct(cur.p_buy * 100, 1)} tone="pos" />
+        <Stat k="P(HOLD)" v={pct((1 - cur.p_buy - cur.p_sell) * 100, 1)} />
+        <Stat k="P(SELL)" v={pct(cur.p_sell * 100, 1)} tone="neg" />
+        <div>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 6 }}>All {ms.n_models} ML &amp; DL models vote</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <Chip tone="ok">BUY {v.BUY ?? 0}</Chip><Chip>HOLD {v.HOLD ?? 0}</Chip><Chip tone="bad">SELL {v.SELL ?? 0}</Chip>
+          </div>
+        </div>
+      </div>
+      <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>{ACTION[cur.signal]} Change the model with the picker on the portfolio card.</div>
+    </div>
+  );
+}
+
+function Forecast({ sym, theme, onSym, stocks, markers, markerModel, ms, chosen }: { sym: string; theme: string; onSym: (s: string) => void;
+  stocks: StockItem[]; markers: Marker[]; markerModel: string; ms: any; chosen: string }) {
   const fc = usePoll(() => (sym ? api.get(`/api/stocks/forecast?sym=${encodeURIComponent(sym)}`) : Promise.resolve(null)), 0, [sym]);
   const d = fc.data;
   const series = useMemo(() => {
@@ -62,6 +96,7 @@ function Forecast({ sym, theme, onSym, stocks, markers, markerModel }: { sym: st
       <State loading={fc.loading && !fc.data} error={fc.error} empty={!sym && "Click any stock in the tables below, or search above."}>
         {d && (
           <>
+            <SignalPanel ms={ms?.sym === d.sym ? ms : null} model={markerModel} chosen={chosen} />
             <div className="cols-2">
               <H k="d1" />
               <H k="m1" />
@@ -224,7 +259,7 @@ export default function Stocks({ theme }: { theme: string }) {
       </div>
 
       <div className="section">
-        <Forecast sym={selSym} theme={theme} onSym={setPick} stocks={sig.data?.rows || []} markers={markers} markerModel={active} />
+        <Forecast sym={selSym} theme={theme} onSym={setPick} stocks={sig.data?.rows || []} markers={markers} markerModel={active} ms={ms.data} chosen={chosen} />
       </div>
 
       <div className="section">
