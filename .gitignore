@@ -19,3 +19,4 @@ backups/
 *.lock
 *.tmp
 ml_lab/results/
+data_lake/**/*.csv

@@ -29,3 +29,20 @@ def test_deep_model_ignores_test_targets_and_future_features():
     y2[300:] = 1 - y2[300:]  # flip test targets
     b = deep.fit_predict("mlp", X2, y2, tr, te, "clf", L=5, seed=0, epochs=5)
     assert np.allclose(a, b, atol=1e-5)
+
+
+def test_options_external_join_uses_only_earlier_sessions():
+    import pandas as pd
+    from ml_lab.options_ml import ext_prev
+    us = pd.Series([1.0, 2.0, 3.0], index=pd.to_datetime(["2025-01-01", "2025-01-02", "2025-01-03"]))
+    india = pd.DatetimeIndex(pd.to_datetime(["2025-01-02", "2025-01-03"]))
+    # the US session of the same date closes after India's close, so it must not be visible
+    assert ext_prev(us, india).tolist() == [1.0, 2.0]
+
+
+def test_bs_vec_put_call_parity():
+    import numpy as np
+    from ml_lab.options_ml import R, bs_vec
+    S, K, T, s = np.array([25000.0]), np.array([25100.0]), np.array([0.02]), np.array([0.15])
+    c, p = bs_vec(S, K, T, s, np.array([True])), bs_vec(S, K, T, s, np.array([False]))
+    assert abs((c - p)[0] - (S - K * np.exp(-R * T))[0]) < 1e-6
