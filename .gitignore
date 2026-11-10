@@ -18,3 +18,4 @@ archive/backtests/**
 backups/
 *.lock
 *.tmp
+ml_lab/results/
