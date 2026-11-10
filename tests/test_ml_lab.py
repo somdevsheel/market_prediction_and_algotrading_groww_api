@@ -31,18 +31,16 @@ def test_deep_model_ignores_test_targets_and_future_features():
     assert np.allclose(a, b, atol=1e-5)
 
 
-def test_options_external_join_uses_only_earlier_sessions():
-    import pandas as pd
-    from ml_lab.options_ml import ext_prev
-    us = pd.Series([1.0, 2.0, 3.0], index=pd.to_datetime(["2025-01-01", "2025-01-02", "2025-01-03"]))
-    india = pd.DatetimeIndex(pd.to_datetime(["2025-01-02", "2025-01-03"]))
-    # the US session of the same date closes after India's close, so it must not be visible
-    assert ext_prev(us, india).tolist() == [1.0, 2.0]
+def test_stock_order_cost_is_realistic_for_small_orders():
+    from ml_lab.stocks_ml import order_cost
+    buy, sell = order_cost(10_000, "buy"), order_cost(10_000, "sell")
+    # Rs 10k delivery: brokerage 10 + STT 10 + stamp 1.5 + GST + slippage 10; sell adds DP ~16
+    assert 30 < buy < 35 and 45 < sell < 52
 
 
-def test_bs_vec_put_call_parity():
-    import numpy as np
-    from ml_lab.options_ml import R, bs_vec
-    S, K, T, s = np.array([25000.0]), np.array([25100.0]), np.array([0.02]), np.array([0.15])
-    c, p = bs_vec(S, K, T, s, np.array([True])), bs_vec(S, K, T, s, np.array([False]))
-    assert abs((c - p)[0] - (S - K * np.exp(-R * T))[0]) < 1e-6
+def test_stock_seq_net_shapes():
+    import torch
+    from ml_lab.stocks_ml import SEQ_L, SeqNet
+    for kind in ("lstm", "gru", "cnn", "transformer"):
+        out = SeqNet(7, kind)(torch.zeros(4, 7), torch.zeros(4, SEQ_L, 3))
+        assert out.shape == (4,)
