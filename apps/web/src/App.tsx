@@ -8,6 +8,7 @@ import Market from "./pages/Market";
 import Overview from "./pages/Overview";
 import Pnl from "./pages/Pnl";
 import Research from "./pages/Research";
+import Stocks from "./pages/Stocks";
 import Strategy from "./pages/Strategy";
 import Trades from "./pages/Trades";
 
@@ -19,6 +20,7 @@ const PAGES = [
   { id: "trades", label: "Trades", ic: "☰" },
   { id: "backtests", label: "Backtests", ic: "↺" },
   { id: "research", label: "Research", ic: "σ" },
+  { id: "stocks", label: "Stocks ML", ic: "▲" },
   { id: "health", label: "Health", ic: "♥" },
 ] as const;
 type PageId = (typeof PAGES)[number]["id"];
@@ -80,6 +82,7 @@ export default function App() {
           {page === "trades" && <Trades mode={mode} />}
           {page === "backtests" && <Backtests theme={theme} />}
           {page === "research" && <Research theme={theme} />}
+          {page === "stocks" && <Stocks theme={theme} />}
           {page === "health" && <Health />}
         </div>
       </main>

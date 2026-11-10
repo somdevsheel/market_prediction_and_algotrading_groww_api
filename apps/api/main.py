@@ -557,3 +557,98 @@ def charges(entry: float = 250.0, exit: float = 260.0, lots: int = 1):
                    "breakeven_move_points": round(b.total / qty, 2), "components": rows, "rates": cfg,
                    "note": "Rates are configured in config/instruments.yaml; verify against Groww/NSE periodically. "
                            "Slippage (spread) is a separate cost, not a charge."})
+
+
+# ---------------------------------------------------------------- Stocks ML (BUY / HOLD / SELL)
+STOCK_ML_DIR = PROJECT_ROOT / "ml_lab" / "results"
+_STOCK_CACHE: dict = {}
+
+
+def _bhs_run() -> Path:
+    runs = sorted(p for p in STOCK_ML_DIR.glob("bhs_*") if (p / "summary.csv").exists() and (p / "current_signals.csv").exists())
+    if not runs:
+        raise HTTPException(404, "No stock ML run yet. Run: python3 -m ml_lab.stocks_bhs")
+    return runs[-1]
+
+
+def _stock_names() -> pd.DataFrame:
+    """sym -> company name / exchange / ISIN from the latest Groww stock list."""
+    if "names" not in _STOCK_CACHE:
+        uni = sorted((resolve_path(CFG, "data_lake") / "silver" / "stock_universe").glob("groww_stocks_2*.parquet"))
+        if not uni:
+            _STOCK_CACHE["names"] = pd.DataFrame(columns=["sym", "name", "exchange", "isin", "groww_symbol"])
+        else:
+            u = pd.read_parquet(uni[-1])
+            u["sym"] = u.nse_symbol.fillna("BSE:" + u.bse_code.astype(str))
+            _STOCK_CACHE["names"] = u.rename(columns={"primary_exchange": "exchange"})[["sym", "name", "exchange", "isin", "groww_symbol"]]
+    return _STOCK_CACHE["names"]
+
+
+def _last_close(syms: list[str], as_of: str) -> dict:
+    path = resolve_path(CFG, "data_lake") / "silver" / "yahoo_stocks" / "all_daily.parquet"
+    if not path.exists():
+        return {}
+    key = ("px", as_of)
+    if key not in _STOCK_CACHE:
+        d = pd.read_parquet(path, columns=["sym", "date", "close"], filters=[("date", "==", pd.Timestamp(as_of))])
+        _STOCK_CACHE[key] = dict(zip(d.sym, d.close.astype(float)))
+    px = _STOCK_CACHE[key]
+    return {s: px.get(s) for s in syms}
+
+
+@app.get("/api/stocks/ml")
+def stocks_ml():
+    """Model comparison, yearly returns and equity curves of the latest BUY/HOLD/SELL walk-forward run."""
+    rd = _bhs_run()
+    rep = json.loads((rd / "report.json").read_text()) if (rd / "report.json").exists() else {}
+    tab = pd.read_csv(rd / "summary.csv", index_col=0)
+    tab.index.name = "model"
+    yearly = pd.read_csv(rd / "yearly.csv", index_col=0)
+    eq = pd.read_csv(rd / "equity.csv", index_col=0, parse_dates=True)
+    curves = {m: [{"date": str(d.date()), "value": round(float(v), 0)} for d, v in eq[m].dropna().items()] for m in eq.columns}
+    return _clean({
+        "run": rd.name, "chosen": rep.get("chosen_on_2013_2019"), "signals_as_of": rep.get("signals_as_of"),
+        "base_rate_up_pct": rep.get("base_rate_up_pct"), "class_share": rep.get("class_share"),
+        "models": tab.reset_index().replace({np.nan: None}).to_dict("records"),
+        "yearly": [{"year": int(y), **{k: (None if pd.isna(v) else float(v)) for k, v in r.items()}} for y, r in yearly.iterrows()],
+        "equity": curves,
+        "method": {"universe": "all NSE/BSE stocks with price >= Rs 20, 1y history, median traded value >= Rs 2 crore/day",
+                   "labels": "next-month return: BUY > +4%, SELL < -4%, HOLD otherwise",
+                   "test": "yearly walk-forward 2013-2026; model chosen on 2013-2019, 2020-2026 is unseen",
+                   "backtest": "Rs 1,00,000, max 10 stocks, BUY -> buy, HOLD -> keep, SELL -> sell; Groww charges + slippage",
+                   "caveat": "Survivorship bias: only companies listed today; real results will likely be lower."}})
+
+
+@app.get("/api/stocks/signals")
+def stocks_signals(model: str = "", signal: str = "", q: str = "", limit: int = 2000, capital: float = 100_000.0, slots: int = 10):
+    """Latest BUY/HOLD/SELL per stock plus the model's top-N portfolio with whole-share quantities."""
+    rd = _bhs_run()
+    rep = json.loads((rd / "report.json").read_text()) if (rd / "report.json").exists() else {}
+    cur = pd.read_csv(rd / "current_signals.csv")
+    models = sorted({c[: -len("_signal")] for c in cur.columns if c.endswith("_signal")})
+    m = model if model in models else (rep.get("chosen_on_2013_2019") if rep.get("chosen_on_2013_2019") in models else models[0])
+    as_of = rep.get("signals_as_of")
+    df = pd.DataFrame({"sym": cur.sym, "signal": cur[f"{m}_signal"], "p_buy": cur[f"{m}_p_buy"], "p_sell": cur[f"{m}_p_sell"],
+                       "traded_value_cr": (cur.tv / 1e7).round(1)})
+    df["score"] = (df.p_buy - df.p_sell).round(3)
+    df = df.merge(_stock_names(), on="sym", how="left")
+    df["last_close"] = df.sym.map(_last_close(df.sym.tolist(), as_of) if as_of else {})
+    df = df.sort_values("score", ascending=False).reset_index(drop=True)
+    df["rank"] = np.arange(1, len(df) + 1)
+    counts = df.signal.value_counts().to_dict()
+    top = df[df.signal == "BUY"].head(slots).copy()
+    per = capital / max(1, slots)
+    top["pos"] = np.arange(1, len(top) + 1)
+    top["qty"] = [int(per // p) if p and p > 0 else 0 for p in top.last_close]
+    top["amount"] = (top.qty * top.last_close).round(0)
+    out = df
+    if signal:
+        out = out[out.signal == signal.upper()]
+    if q:
+        ql = q.lower()
+        out = out[out.sym.str.lower().str.contains(ql, regex=False) | out.name.fillna("").str.lower().str.contains(ql, regex=False)]
+    return _clean({"run": rd.name, "model": m, "models": models, "as_of": as_of, "counts": counts, "total": int(len(df)),
+                   "portfolio": top.replace({np.nan: None}).to_dict("records"),
+                   "portfolio_note": f"Top {slots} BUY signals by score, Rs {per:,.0f} each at the last close (whole shares). "
+                                     "Research output for paper trading, not investment advice.",
+                   "rows": out.head(limit).replace({np.nan: None}).to_dict("records")})

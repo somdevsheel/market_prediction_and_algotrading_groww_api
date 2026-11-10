@@ -20,3 +20,4 @@ backups/
 *.tmp
 ml_lab/results/
 data_lake/**/*.csv
+catboost_info/
