@@ -6,6 +6,8 @@ export interface Series {
   type?: "line" | "area" | "histogram";
   color?: string; // CSS var name like "--pos" or a literal color
   data: { time: string; value: number | null | undefined; color?: string }[];
+  /** Optional arrows/labels on this series (times must exist in `data`). */
+  markers?: { time: string; position: "aboveBar" | "belowBar" | "inBar"; shape: "arrowUp" | "arrowDown" | "circle" | "square"; color: string; text?: string }[];
 }
 
 const cssVar = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -39,6 +41,11 @@ export function Chart({ series, height = 280, theme }: { series: Series[]; heigh
         ? c.addHistogramSeries({ color, title: s.name })
         : c.addLineSeries({ color, lineWidth: 2, title: s.name });
       ser.setData(clean);
+      if (s.markers?.length) {
+        const times = new Set(clean.map((d: any) => d.time));
+        ser.setMarkers(s.markers.filter((m) => times.has(m.time)).sort((a, b) => (a.time < b.time ? -1 : 1))
+          .map((m) => ({ ...m, color: resolve(m.color) })) as any);
+      }
     }
     c.timeScale().fitContent();
     return () => { c.remove(); chart.current = null; };

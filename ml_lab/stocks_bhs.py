@@ -16,7 +16,8 @@ Backtest   Rs 1,00,000, max 10 stocks, equal rupees, whole shares.
            Groww delivery charges + slippage by liquidity (0.1 % / 0.2 % / 0.4 %).
 Selection  models are ranked on 2013-2019 only; 2020-2026 is a hold-out.
 
-    python3 -m ml_lab.stocks_bhs
+    python3 -m ml_lab.stocks_bhs                  # full walk-forward + backtest + today's signals (~40 min)
+    python3 -m ml_lab.stocks_bhs --current-only   # only refresh today's signals for every model (~5 min)
 """
 from __future__ import annotations
 
@@ -331,6 +332,37 @@ def perf(eq: pd.Series, start=CAPITAL) -> dict:
             "sharpe": round(float(r.mean() / r.std() * np.sqrt(12)), 2) if r.std() > 0 else 0.0}
 
 
+def current_signals(L, feats, seq, out: Path, sort_by: str = "xgboost") -> pd.DataFrame:
+    """Train every model on all months with a finished holding period; signal for the latest date (all models)."""
+    last = L.date.max()
+    tr = np.where((L.y >= 0) & L.exit.notna())[0]
+    te = np.where(L.date == last)[0]
+    pr = predict(L, feats, seq, tr, te)
+    cur = L.loc[te, ["sym", "tv"]].copy()
+    for m in MODELS:
+        cur[f"{m}_signal"] = [CLASSES[i] for i in pr[m].argmax(1)]
+        cur[f"{m}_p_buy"], cur[f"{m}_p_sell"] = pr[m][:, 2].round(3), pr[m][:, 0].round(3)
+    cur = cur.sort_values(f"{sort_by}_p_buy", ascending=False)
+    cur.to_csv(out / "current_signals.csv", index=False)
+    return cur
+
+
+def main_current_only() -> int:
+    """Refresh today's signals for all models into the latest run folder (no walk-forward; ~5 min)."""
+    runs = sorted(p for p in (ROOT / "results").glob("bhs_*") if (p / "report.json").exists())
+    if not runs:
+        print("no previous run; use: python3 -m ml_lab.stocks_bhs")
+        return 1
+    rep = json.loads((runs[-1] / "report.json").read_text())
+    P, jump, nifty = load_panels()
+    L, feats, seq = build(P, jump, nifty)
+    cur = current_signals(L, feats, seq, runs[-1], rep.get("chosen_on_2013_2019", "xgboost"))
+    rep["signals_as_of"] = str(L.date.max().date())
+    (runs[-1] / "report.json").write_text(json.dumps(rep, indent=1, default=str))
+    print(f"current signals for {len(cur)} stocks, {len(MODELS)} models, as of {rep['signals_as_of']} -> {runs[-1]}")
+    return 0
+
+
 def main() -> int:
     t0 = datetime.now()
     P, jump, nifty = load_panels()
@@ -402,17 +434,8 @@ def main() -> int:
     tab.to_csv(out / "summary.csv")
     pd.DataFrame(yearly).to_csv(out / "yearly.csv")
     pd.DataFrame(curves).to_csv(out / "equity.csv")
-    # current signals: train on everything with a finished holding period, predict the latest date
+    cur = current_signals(L, feats, seq, out, chosen)
     last = L.date.max()
-    tr = np.where((L.y >= 0) & L.exit.notna())[0]
-    te = np.where(L.date == last)[0]
-    pr = predict(L, feats, seq, tr, te)
-    cur = L.loc[te, ["sym", "tv"]].copy()
-    for m in (chosen, "ensemble"):
-        cur[f"{m}_signal"] = [CLASSES[i] for i in pr[m].argmax(1)]
-        cur[f"{m}_p_buy"], cur[f"{m}_p_sell"] = pr[m][:, 2].round(3), pr[m][:, 0].round(3)
-    cur = cur.sort_values(f"{chosen}_p_buy", ascending=False)
-    cur.to_csv(out / "current_signals.csv", index=False)
     base_up = float((lab.fwd > 0).mean() * 100)
     (out / "report.json").write_text(json.dumps({"summary": res, "chosen_on_2013_2019": chosen, "base_rate_up_pct": base_up,
                                                  "class_share": {c: float((lab.y == i).mean()) for i, c in enumerate(CLASSES)},
@@ -435,4 +458,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    import sys
+    raise SystemExit(main_current_only() if "--current-only" in sys.argv else main())

@@ -16,9 +16,14 @@ const LABEL: Record<string, string> = {
   "NIFTY50 (price)": "NIFTY 50 (price)", "all universe equal-wt (gross)": "All stocks equal-wt (gross)",
 };
 const name = (m: string) => LABEL[m] || m;
+const FAM: Record<string, string> = { logistic: "ML", knn: "ML", random_forest: "ML", extra_trees: "ML", hist_gb: "ML", xgboost: "ML",
+  lightgbm: "ML", catboost: "ML", mlp: "DL", lstm: "DL", gru: "DL", cnn: "DL", transformer: "DL", ensemble: "ML+DL" };
 const COLORS = ["--accent", "--pos", "--warn", "--neg", "--muted"];
 
-function Forecast({ sym, theme, onSym, stocks }: { sym: string; theme: string; onSym: (s: string) => void; stocks: StockItem[] }) {
+type Marker = { time: string; position: "aboveBar" | "belowBar"; shape: "arrowUp" | "arrowDown"; color: string; text?: string };
+
+function Forecast({ sym, theme, onSym, stocks, markers, markerModel }: { sym: string; theme: string; onSym: (s: string) => void;
+  stocks: StockItem[]; markers: Marker[]; markerModel: string }) {
   const fc = usePoll(() => (sym ? api.get(`/api/stocks/forecast?sym=${encodeURIComponent(sym)}`) : Promise.resolve(null)), 0, [sym]);
   const d = fc.data;
   const series = useMemo(() => {
@@ -27,12 +32,12 @@ function Forecast({ sym, theme, onSym, stocks }: { sym: string; theme: string; o
     const m = d.horizons?.m1;
     const leg = (v: number) => [{ time: d.as_of, value: d.close }, { time: m.target_date, value: v }];
     return [
-      { name: "Close", color: "--accent", data: hist },
+      { name: "Close", color: "--accent", data: hist, markers },
       ...(m ? [{ name: "1-month high", color: "--pos", data: leg(m.hi) },
                { name: "1-month middle", color: "--warn", data: leg(m.mid) },
                { name: "1-month low", color: "--neg", data: leg(m.lo) }] : []),
     ];
-  }, [d]);
+  }, [d, markers]);
   const H = ({ k }: { k: "d1" | "m1" }) => {
     const h = d?.horizons?.[k];
     if (!h) return null;
@@ -62,10 +67,66 @@ function Forecast({ sym, theme, onSym, stocks }: { sym: string; theme: string; o
               <H k="m1" />
             </div>
             <div className="section"><Chart series={series} theme={theme} height={300} /></div>
+            {markers.length > 0 && <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+              <span className="pos">▲ B</span> = {name(markerModel)} said BUY, <span className="neg">▼ S</span> = SELL at that month-end (backtest, out-of-sample).</div>}
             <div className="banner" style={{ marginTop: 12, fontSize: 12 }}>{d.note}</div>
           </>
         )}
       </State>
+    </Card>
+  );
+}
+
+const SIG_CLS: Record<string, string> = { BUY: "pos", SELL: "neg", HOLD: "muted" };
+const SigTxt = ({ v, short }: { v?: string | null; short?: boolean }) =>
+  v ? <span className={SIG_CLS[v]} style={{ fontWeight: 600 }}>{short ? v[0] : v}</span> : <span className="muted">—</span>;
+
+function ModelSignals({ ms, chosen }: { ms: any; chosen: string }) {
+  const [view, setView] = useState<"now" | "history" | "record">("now");
+  if (!ms) return null;
+  const v = ms.votes || {};
+  const nowCols: Col<any>[] = [
+    { key: "model", label: "Model", render: (r) => <b>{name(r.model)}{r.model === chosen ? " ⭐" : ""}</b> },
+    { key: "family", label: "Type" },
+    { key: "signal", label: "Signal today", render: (r) => <Chip tone={SIG_TONE[r.signal]}>{r.signal}</Chip> },
+    { key: "p_buy", label: "P(BUY)", num: true, render: (r) => pct(r.p_buy * 100, 1) },
+    { key: "p_sell", label: "P(SELL)", num: true, render: (r) => pct(r.p_sell * 100, 1) },
+  ];
+  const models: string[] = (ms.stock_stats || []).map((x: any) => x.model);
+  const histCols: Col<any>[] = [
+    { key: "date", label: "Month-end" },
+    { key: "fwd_pct", label: "Next month", num: true, render: (r) => <span className={tone(r.fwd_pct)}>{pct(r.fwd_pct, 1)}</span> },
+    { key: "actual", label: "Actual", render: (r) => <SigTxt v={r.actual} /> },
+    ...models.map((m) => ({ key: m, label: name(m).replace("Random Forest", "RF").replace("Extra Trees", "ET").replace("Transformer", "Trans."),
+      render: (r: any) => <span title={`${name(m)}: ${r[m]}${r.actual ? (r[m] === r.actual ? " ✓" : " ✗") : ""}`}
+        style={{ outline: r.actual && r[m] === r.actual ? "1px solid var(--line)" : "none", borderRadius: 4, padding: "0 3px" }}><SigTxt v={r[m]} short /></span> })),
+  ];
+  const recCols: Col<any>[] = [
+    { key: "model", label: "Model", render: (r) => <b>{name(r.model)}{r.model === chosen ? " ⭐" : ""}</b> },
+    { key: "family", label: "Type" },
+    { key: "months", label: "Months", num: true },
+    { key: "hit_rate_pct", label: "Signal = actual", num: true, render: (r) => pct(r.hit_rate_pct) },
+    { key: "buy_months", label: "BUY months", num: true },
+    { key: "buy_up_pct", label: "Rose after BUY", num: true, render: (r) => pct(r.buy_up_pct) },
+    { key: "buy_avg_next_month_pct", label: "Avg after BUY", num: true, render: (r) => <span className={tone(r.buy_avg_next_month_pct)}>{pct(r.buy_avg_next_month_pct, 2)}</span> },
+    { key: "sell_months", label: "SELL months", num: true },
+    { key: "sell_avg_next_month_pct", label: "Avg after SELL", num: true, render: (r) => <span className={tone(r.sell_avg_next_month_pct)}>{pct(r.sell_avg_next_month_pct, 2)}</span> },
+  ];
+  return (
+    <Card title={<>ML &amp; DL signals · <span className="mono">{ms.sym}</span></>} right={
+      <Seg value={view} onChange={setView} options={[{ v: "now", label: "Today" }, { v: "history", label: "Backtest history" }, { v: "record", label: "Track record" }]} />}>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
+        <span className="muted" style={{ fontSize: 13 }}>Today ({ms.as_of}), {ms.n_models} models vote:</span>
+        <Chip tone="ok">BUY {v.BUY ?? 0}</Chip><Chip>HOLD {v.HOLD ?? 0}</Chip><Chip tone="bad">SELL {v.SELL ?? 0}</Chip>
+        {ms.current?.length === 0 && <span className="muted">not in today's liquid universe — no current signal</span>}
+      </div>
+      {view === "now" && <DataTable rows={ms.current} cols={nowCols} maxHeight={560} empty="No current signal for this stock" />}
+      {view === "history" && <DataTable rows={ms.history} cols={histCols} maxHeight={480} empty="This stock never met the liquidity filter in 2013–2026" />}
+      {view === "record" && <DataTable rows={ms.stock_stats} cols={recCols} maxHeight={560} empty="No backtest history for this stock" />}
+      <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+        {view === "history" ? "B / H / S = each model's BUY / HOLD / SELL at that month-end; boxed = matched what actually happened (BUY > +4%, SELL < −4%). " : ""}
+        {ms.note} Per-stock track records are small samples — judge models by the all-stock results below.
+      </div>
     </Card>
   );
 }
@@ -83,6 +144,12 @@ export default function Stocks({ theme }: { theme: string }) {
   const best = (ml.data?.models || []).find((r: any) => r.model === chosen) || {};
   const selSym = pick || sig.data?.portfolio?.[0]?.sym || "";
   const choose = (r: any) => { setPick(r.sym); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  const ms = usePoll(() => (selSym ? api.get(`/api/stocks/model_signals?sym=${encodeURIComponent(selSym)}`) : Promise.resolve(null)), 0, [selSym]);
+  const markers = useMemo<Marker[]>(() => (ms.data?.history || [])
+    .filter((h: any) => h[active] === "BUY" || h[active] === "SELL")
+    .map((h: any) => h[active] === "BUY"
+      ? { time: h.date, position: "belowBar", shape: "arrowUp", color: "--pos", text: "B" }
+      : { time: h.date, position: "aboveBar", shape: "arrowDown", color: "--neg", text: "S" }), [ms.data, active]);
 
   const rows = useMemo(() => {
     const all: any[] = sig.data?.rows || [];
@@ -157,12 +224,18 @@ export default function Stocks({ theme }: { theme: string }) {
       </div>
 
       <div className="section">
-        <Forecast sym={selSym} theme={theme} onSym={setPick} stocks={sig.data?.rows || []} />
+        <Forecast sym={selSym} theme={theme} onSym={setPick} stocks={sig.data?.rows || []} markers={markers} markerModel={active} />
       </div>
 
       <div className="section">
-        <Card title={`Model portfolio · top 10 BUY · ₹1,00,000`} right={
-          <Seg value={active} onChange={(v) => setModel(v)} options={[chosen, "ensemble"].filter((x, i, a) => a.indexOf(x) === i).map((m) => ({ v: m, label: name(m) }))} />}>
+        <State error={ms.error}><ModelSignals ms={ms.data} chosen={chosen} /></State>
+      </div>
+
+      <div className="section">
+        <Card title={`Model portfolio · ${name(active)} · top 10 BUY · ₹1,00,000`} right={
+          <select value={active} onChange={(e) => setModel(e.target.value)} style={{ textTransform: "none" }} title="Which model's signals to use for the portfolio, the table and the chart arrows">
+            {(sig.data?.models || [chosen]).map((m: string) => <option key={m} value={m}>{name(m)}{m === chosen ? " ⭐ (best)" : ""} · {FAM[m] || ""}</option>)}
+          </select>}>
           <State loading={sig.loading && !sig.data} error={sig.error} empty={!sig.data?.portfolio?.length && "No BUY signals"}>
             <DataTable rows={sig.data?.portfolio} cols={portCols} onRowClick={choose} />
             <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>

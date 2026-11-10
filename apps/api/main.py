@@ -707,3 +707,58 @@ def stocks_forecast(sym: str, history_days: int = 250):
                    "history": [{"date": str(d.date()), "close": round(float(c), 2)} for d, c in zip(h.date, h.close)],
                    "note": "Range = where the price should land about 3 times in 4 (tested 2024-2026 on unseen data). "
                            "The middle value is not more accurate than today's price; prices are close to unpredictable."})
+
+
+_SIG = ["SELL", "HOLD", "BUY"]
+
+
+def _bhs_preds(rd: Path) -> pd.DataFrame:
+    key = ("preds", rd.name)
+    if key not in _STOCK_CACHE:
+        fs = sorted(rd.glob("pred_*.parquet"))
+        _STOCK_CACHE[key] = pd.concat([pd.read_parquet(f) for f in fs], ignore_index=True) if fs else pd.DataFrame()
+    return _STOCK_CACHE[key]
+
+
+@app.get("/api/stocks/model_signals")
+def stocks_model_signals(sym: str):
+    """One stock: today's BUY/HOLD/SELL from every ML/DL model + its month-by-month backtest signals and outcomes."""
+    rd = _bhs_run()
+    rep = json.loads((rd / "report.json").read_text()) if (rd / "report.json").exists() else {}
+    fam = pd.read_csv(rd / "summary.csv", index_col=0)["family"].to_dict()
+    cur = pd.read_csv(rd / "current_signals.csv")
+    models = [c[: -len("_signal")] for c in cur.columns if c.endswith("_signal")]
+    row = cur[cur.sym == sym]
+    current = []
+    if len(row):
+        r = row.iloc[0]
+        current = [{"model": m, "family": fam.get(m), "signal": r[f"{m}_signal"], "p_buy": float(r[f"{m}_p_buy"]),
+                    "p_sell": float(r[f"{m}_p_sell"])} for m in models]
+    votes = {s: sum(1 for c in current if c["signal"] == s and c["model"] != "ensemble") for s in _SIG}
+    P = _bhs_preds(rd)
+    hist, stats = [], []
+    if len(P):
+        h = P[P.sym == sym].sort_values("date")
+        if rep.get("signals_as_of"):                       # today's row lives in "current" (fresh all-data models)
+            h = h[h.date < pd.Timestamp(rep["signals_as_of"])]
+        pm = [m for m in (fam.keys()) if f"{m}_p0" in h.columns]
+        for _, x in h.iterrows():
+            rec = {"date": str(pd.Timestamp(x.date).date()), "fwd_pct": None if pd.isna(x.fwd) else round(float(x.fwd) * 100, 2),
+                   "actual": None if x.y < 0 else _SIG[int(x.y)]}
+            for m in pm:
+                rec[m] = _SIG[int(np.argmax([x[f"{m}_p0"], x[f"{m}_p1"], x[f"{m}_p2"]]))]
+            hist.append(rec)
+        done = [r for r in hist if r["actual"]]
+        for m in pm:
+            buys = [r["fwd_pct"] for r in done if r[m] == "BUY"]
+            sells = [r["fwd_pct"] for r in done if r[m] == "SELL"]
+            stats.append({"model": m, "family": fam.get(m), "months": len(done),
+                          "hit_rate_pct": round(100 * sum(r[m] == r["actual"] for r in done) / len(done), 1) if done else None,
+                          "buy_months": len(buys), "buy_avg_next_month_pct": round(float(np.mean(buys)), 2) if buys else None,
+                          "buy_up_pct": round(100 * float(np.mean([b > 0 for b in buys])), 1) if buys else None,
+                          "sell_months": len(sells), "sell_avg_next_month_pct": round(float(np.mean(sells)), 2) if sells else None})
+    return _clean({"sym": sym, "as_of": rep.get("signals_as_of"), "chosen": rep.get("chosen_on_2013_2019"),
+                   "current": current, "votes": votes, "n_models": sum(votes.values()),
+                   "history": hist[::-1], "stock_stats": stats,
+                   "note": "History = out-of-sample: each month's signal came from models trained only on earlier years. "
+                           "A stock appears only in months when it met the liquidity filter."})
