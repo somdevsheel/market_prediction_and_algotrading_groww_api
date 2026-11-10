@@ -652,3 +652,58 @@ def stocks_signals(model: str = "", signal: str = "", q: str = "", limit: int = 
                    "portfolio_note": f"Top {slots} BUY signals by score, Rs {per:,.0f} each at the last close (whole shares). "
                                      "Research output for paper trading, not investment advice.",
                    "rows": out.head(limit).replace({np.nan: None}).to_dict("records")})
+
+
+def _forecast_run() -> Path | None:
+    runs = sorted(p for p in STOCK_ML_DIR.glob("forecast_*") if (p / "forecast.csv").exists())
+    return runs[-1] if runs else None
+
+
+def _trading_days_after(d: pd.Timestamp, n: int) -> pd.Timestamp:
+    """n NSE trading days after d (exchange holidays from the market calendar; weekdays as fallback)."""
+    try:
+        from core.clock import MarketCalendar
+
+        cal = MarketCalendar(CFG["settings"], CFG["instruments"])
+        x = d.date()
+        for _ in range(n):
+            x = cal.next_trading_day(x)
+        return pd.Timestamp(x)
+    except Exception:  # noqa: BLE001
+        return pd.bdate_range(d, periods=n + 1)[-1]
+
+
+@app.get("/api/stocks/forecast")
+def stocks_forecast(sym: str, history_days: int = 250):
+    """Next-day and ~1-month price RANGE for one stock (calibrated 10/50/90 % quantiles) + recent closes."""
+    rd = _forecast_run()
+    if rd is None:
+        raise HTTPException(404, "No price forecast yet. Run: python3 -m ml_lab.stock_price_forecast")
+    key = ("fc", rd.name)
+    if key not in _STOCK_CACHE:
+        _STOCK_CACHE[key] = (pd.read_csv(rd / "forecast.csv").set_index("sym"), json.loads((rd / "metrics.json").read_text()))
+    fc, met = _STOCK_CACHE[key]
+    if sym not in fc.index:
+        raise HTTPException(404, f"{sym}: no forecast (not in the liquid universe: price >= Rs 20 and >= Rs 2 crore traded/day)")
+    r = fc.loc[sym]
+    as_of = pd.Timestamp(r.as_of)
+    path = resolve_path(CFG, "data_lake") / "silver" / "yahoo_stocks" / "all_daily.parquet"
+    h = pd.read_parquet(path, columns=["date", "close"], filters=[("sym", "==", sym), ("date", ">", as_of - pd.Timedelta(days=history_days * 1.5))])
+    h = h.sort_values("date").tail(history_days)
+    targets = {k: _trading_days_after(as_of, int(r[f"{k}_days"])) for k in ("d1", "m1")}
+    names = _stock_names().set_index("sym")
+    acc = met.get("accuracy", {})
+    horizon = {}
+    for k, label in (("d1", "next trading day"), ("m1", "about 1 month (21 trading days)")):
+        a = acc.get(k, {})
+        horizon[k] = {"label": label, "target_date": str(targets[k].date()),
+                      **{q: float(r[f"{k}_{q}"]) for q in ("lo", "mid", "hi")},
+                      **{f"{q}_pct": float(r[f"{k}_{q}_ret_pct"]) for q in ("lo", "mid", "hi")},
+                      "range_hit_rate_pct": a.get("range_contains_actual_pct"),
+                      "mid_error_pct": a.get("avg_error_pct_model"), "same_price_error_pct": a.get("avg_error_pct_same_price"),
+                      "direction_correct_pct": a.get("direction_correct_pct")}
+    return _clean({"sym": sym, "name": names.name.get(sym) if sym in names.index else None, "as_of": r.as_of,
+                   "close": float(r.close), "run": rd.name, "horizons": horizon,
+                   "history": [{"date": str(d.date()), "close": round(float(c), 2)} for d, c in zip(h.date, h.close)],
+                   "note": "Range = where the price should land about 3 times in 4 (tested 2024-2026 on unseen data). "
+                           "The middle value is not more accurate than today's price; prices are close to unpredictable."})

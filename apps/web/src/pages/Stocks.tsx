@@ -17,16 +17,73 @@ const LABEL: Record<string, string> = {
 const name = (m: string) => LABEL[m] || m;
 const COLORS = ["--accent", "--pos", "--warn", "--neg", "--muted"];
 
+function Forecast({ sym, theme, onSym }: { sym: string; theme: string; onSym: (s: string) => void }) {
+  const fc = usePoll(() => (sym ? api.get(`/api/stocks/forecast?sym=${encodeURIComponent(sym)}`) : Promise.resolve(null)), 0, [sym]);
+  const [text, setText] = useState("");
+  const d = fc.data;
+  const series = useMemo(() => {
+    if (!d) return [];
+    const hist = (d.history || []).map((h: any) => ({ time: h.date, value: h.close }));
+    const m = d.horizons?.m1;
+    const leg = (v: number) => [{ time: d.as_of, value: d.close }, { time: m.target_date, value: v }];
+    return [
+      { name: "Close", color: "--accent", data: hist },
+      ...(m ? [{ name: "1-month high", color: "--pos", data: leg(m.hi) },
+               { name: "1-month middle", color: "--warn", data: leg(m.mid) },
+               { name: "1-month low", color: "--neg", data: leg(m.lo) }] : []),
+    ];
+  }, [d]);
+  const H = ({ k }: { k: "d1" | "m1" }) => {
+    const h = d?.horizons?.[k];
+    if (!h) return null;
+    return (
+      <div className="card" style={{ padding: 12 }}>
+        <div className="muted" style={{ fontSize: 12 }}>{k === "d1" ? "Tomorrow" : "In about 1 month"} · {h.target_date}</div>
+        <div className="grid" style={{ marginTop: 8, gridTemplateColumns: "repeat(3, 1fr)" }}>
+          <Stat k="Low" v={inr(h.lo, 2)} tone="neg" s={pct(h.lo_pct, 1)} />
+          <Stat k="Middle" v={inr(h.mid, 2)} s={pct(h.mid_pct, 1)} />
+          <Stat k="High" v={inr(h.hi, 2)} tone="pos" s={pct(h.hi_pct, 1)} />
+        </div>
+        <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+          Range held the actual price {pct(h.range_hit_rate_pct)} of the time (2024–26, unseen). Middle-value error {pct(h.mid_error_pct, 2)} vs
+          {" "}{pct(h.same_price_error_pct, 2)} for “same as today”; direction right {pct(h.direction_correct_pct)}.
+        </div>
+      </div>
+    );
+  };
+  return (
+    <Card title={<>Price forecast · {d ? <><span className="mono">{d.sym}</span>&nbsp;{d.name || ""}&nbsp;· last close {inr(d.close, 2)} ({d.as_of})</> : sym || "pick a stock"}</>}
+      right={<form onSubmit={(e) => { e.preventDefault(); if (text.trim()) onSym(text.trim().toUpperCase()); }} style={{ textTransform: "none" }}>
+        <input placeholder="Symbol, e.g. TCS" value={text} onChange={(e) => setText(e.target.value)} style={{ width: 160 }} /></form>}>
+      <State loading={fc.loading && !fc.data} error={fc.error} empty={!sym && "Click any stock in the tables below, or type a symbol."}>
+        {d && (
+          <>
+            <div className="cols-2">
+              <H k="d1" />
+              <H k="m1" />
+            </div>
+            <div className="section"><Chart series={series} theme={theme} height={300} /></div>
+            <div className="banner" style={{ marginTop: 12, fontSize: 12 }}>{d.note}</div>
+          </>
+        )}
+      </State>
+    </Card>
+  );
+}
+
 export default function Stocks({ theme }: { theme: string }) {
   const ml = usePoll(() => api.get("/api/stocks/ml"));
   const [model, setModel] = useState<string>("");
   const [filter, setFilter] = useState<Sig>("");
   const [q, setQ] = useState("");
   const [compare, setCompare] = useState<string>("ensemble");
+  const [pick, setPick] = useState<string>("");
   const sig = usePoll(() => api.get(`/api/stocks/signals?model=${model}`), 0, [model]);
   const chosen: string = ml.data?.chosen || "xgboost";
   const active: string = sig.data?.model || chosen;
   const best = (ml.data?.models || []).find((r: any) => r.model === chosen) || {};
+  const selSym = pick || sig.data?.portfolio?.[0]?.sym || "";
+  const choose = (r: any) => { setPick(r.sym); window.scrollTo({ top: 0, behavior: "smooth" }); };
 
   const rows = useMemo(() => {
     const all: any[] = sig.data?.rows || [];
@@ -101,12 +158,16 @@ export default function Stocks({ theme }: { theme: string }) {
       </div>
 
       <div className="section">
+        <Forecast sym={selSym} theme={theme} onSym={setPick} />
+      </div>
+
+      <div className="section">
         <Card title={`Model portfolio · top 10 BUY · ₹1,00,000`} right={
           <Seg value={active} onChange={(v) => setModel(v)} options={[chosen, "ensemble"].filter((x, i, a) => a.indexOf(x) === i).map((m) => ({ v: m, label: name(m) }))} />}>
           <State loading={sig.loading && !sig.data} error={sig.error} empty={!sig.data?.portfolio?.length && "No BUY signals"}>
-            <DataTable rows={sig.data?.portfolio} cols={portCols} />
+            <DataTable rows={sig.data?.portfolio} cols={portCols} onRowClick={choose} />
             <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-              {sig.data?.portfolio_note} Rule: buy on BUY, keep on HOLD, sell on SELL — rebalanced once a month at the open after month-end.
+              {sig.data?.portfolio_note} Click a row for its price forecast. Rule: buy on BUY, keep on HOLD, sell on SELL — rebalanced once a month at the open after month-end.
             </div>
           </State>
         </Card>
@@ -120,7 +181,7 @@ export default function Stocks({ theme }: { theme: string }) {
               { v: "BUY", label: `BUY ${c.BUY ?? ""}` }, { v: "HOLD", label: `HOLD ${c.HOLD ?? ""}` }, { v: "SELL", label: `SELL ${c.SELL ?? ""}` }]} />
           </span>}>
           <State loading={sig.loading && !sig.data} error={sig.error}>
-            <DataTable rows={rows} cols={sigCols} maxHeight={480} empty="No stocks match" />
+            <DataTable rows={rows} cols={sigCols} maxHeight={480} empty="No stocks match" onRowClick={choose} />
           </State>
         </Card>
       </div>
@@ -153,7 +214,7 @@ export default function Stocks({ theme }: { theme: string }) {
         <Card title="Method & caveats">
           <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.7, fontSize: 13 }}>
             {Object.entries(ml.data?.method || {}).map(([k, v]) => <li key={k}><b>{k}:</b> {String(v)}</li>)}
-            <li><b>refresh:</b> <span className="mono">python3 -m ml_lab.data.all_stocks</span> (prices) then <span className="mono">python3 -m ml_lab.stocks_bhs</span> (~40 min, retrains and writes new signals)</li>
+            <li><b>refresh:</b> <span className="mono">python3 -m ml_lab.data.all_stocks</span> (prices) then <span className="mono">python3 -m ml_lab.stocks_bhs</span> (~40 min, retrains and writes new signals) and <span className="mono">python3 -m ml_lab.stock_price_forecast</span> (~1 min, price ranges)</li>
           </ul>
         </Card>
       </div>
