@@ -10,6 +10,12 @@ Step 2  `yahoo`  : split/dividend-adjusted daily OHLCV from START (2000-01-01) i
     python3 -m ml_lab.data.all_stocks            # both steps
     python3 -m ml_lab.data.all_stocks yahoo      # resume download (+ combine)
     python3 -m ml_lab.data.all_stocks combine    # only rebuild all_daily.parquet + report from downloaded chunks
+    python3 -m ml_lab.data.all_stocks update     # daily: append the latest days for every stock (+ combine)
+
+`update` downloads only the last UPDATE_DAYS calendar days for all tickers (data_lake/bronze/yahoo_all/update_<date>.parquet).
+Yahoo prices are split/dividend-adjusted, so a new adjustment changes old prices: any ticker whose overlapping closes
+differ from the stored ones by > 0.5 % gets its full history re-downloaded (refresh_<date>.parquet).  When files
+overlap, the most recently written file wins.
 """
 from __future__ import annotations
 
@@ -64,8 +70,8 @@ def latest_universe() -> pd.DataFrame:
     return pd.read_parquet(sorted(UNI_DIR.glob("groww_stocks_2*.parquet"))[-1])
 
 
-def _download(tickers: list[str]) -> pd.DataFrame:
-    raw = yf.download(tickers, start=START, interval="1d", auto_adjust=True, progress=False, threads=True,
+def _download(tickers: list[str], start: str = START) -> pd.DataFrame:
+    raw = yf.download(tickers, start=start, interval="1d", auto_adjust=True, progress=False, threads=True,
                       group_by="ticker")
     frames = []
     for t in tickers:
@@ -177,10 +183,11 @@ def yahoo_all(u: pd.DataFrame, download: bool = True) -> dict:
         time.sleep(2)
     if download:
         retry_missing(u)
-    all_ = pd.concat([pd.read_parquet(p) for p in sorted(RAW_DIR.glob("*.parquet"))], ignore_index=True)
+    files = sorted(RAW_DIR.glob("*.parquet"), key=lambda f: f.stat().st_mtime)    # newest last -> wins
+    all_ = pd.concat([pd.read_parquet(p) for p in files], ignore_index=True)
     alt2main = dict(zip(u.yahoo_alt, u.yahoo))
     all_["yahoo"] = all_.yahoo.map(alt2main).fillna(all_.yahoo)              # .map: Series.replace(dict) is very slow
-    all_ = all_.drop_duplicates(["yahoo", "date"]).merge(
+    all_ = all_.drop_duplicates(["yahoo", "date"], keep="last").merge(
         u[["yahoo", "isin", "name", "nse_symbol", "bse_code", "primary_exchange"]], on="yahoo", how="left")
     all_["sym"] = all_.nse_symbol.fillna("BSE:" + all_.bse_code.astype(str))
     out = LAKE / "silver" / "yahoo_stocks" / "all_daily.parquet"
@@ -206,10 +213,57 @@ def yahoo_all(u: pd.DataFrame, download: bool = True) -> dict:
     return rep
 
 
+UPDATE_DAYS = 21
+
+
+def update_recent(u: pd.DataFrame) -> dict:
+    """Append the latest days for every stock already in all_daily.parquet; re-download re-adjusted histories."""
+    cur = pd.read_parquet(LAKE / "silver" / "yahoo_stocks" / "all_daily.parquet", columns=["date", "yahoo", "close"])
+    have_last = cur.date.max()
+    start = (have_last - pd.Timedelta(days=UPDATE_DAYS)).date().isoformat()
+    tickers = sorted(cur.yahoo.unique())
+    today = datetime.now(IST).strftime("%Y%m%d")
+    frames = []
+    for i in range(0, len(tickers), 200):
+        ch = tickers[i:i + 200]
+        for attempt in range(3):
+            try:
+                df = _download(ch, start=start)
+                break
+            except Exception as e:
+                print(f"  batch {i // 200} attempt {attempt + 1} failed: {type(e).__name__}", flush=True)
+                time.sleep(30 * (attempt + 1))
+        else:
+            continue
+        if df.empty and _rate_limited(ch):
+            wait_for_yahoo()
+            df = _download(ch, start=start)
+        frames.append(df)
+        print(f"  recent {min(i + 200, len(tickers))}/{len(tickers)} tickers", flush=True)
+        time.sleep(1.5)
+    new = pd.concat(frames, ignore_index=True)
+    # adjustment check on the overlapping dates
+    ov = new.merge(cur[cur.date >= start], on=["yahoo", "date"], suffixes=("", "_old"))
+    diff = (ov.close / ov.close_old - 1).abs().groupby(ov.yahoo).max()
+    readj = sorted(diff[diff > 0.005].index)
+    print(f"  {len(readj)} tickers re-adjusted (split/dividend) -> full history re-download", flush=True)
+    full = [_download(readj[i:i + 50]) for i in range(0, len(readj), 50)]
+    if full:
+        pd.concat(full, ignore_index=True).to_parquet(RAW_DIR / f"refresh_{today}.parquet", index=False)
+        new = new[~new.yahoo.isin(readj)]
+    new.to_parquet(RAW_DIR / f"update_{today}.parquet", index=False)
+    return {"previous_last_date": str(have_last.date()), "new_last_date": str(new.date.max().date()),
+            "tickers_updated": int(new.yahoo.nunique()), "new_rows": int((new.date > have_last).sum()),
+            "re_adjusted_full_history": len(readj)}
+
+
 def main(argv: list[str]) -> int:
     step = argv[0] if argv else "all"
     u = groww_universe() if step in ("all", "groww") else latest_universe()
-    if step in ("all", "yahoo", "combine"):
+    if step == "update":
+        print(json.dumps(update_recent(u), indent=1), flush=True)
+        print(json.dumps(yahoo_all(u, download=False), indent=1))
+    elif step in ("all", "yahoo", "combine"):
         print(json.dumps(yahoo_all(u, download=step != "combine"), indent=1))
     return 0
 
