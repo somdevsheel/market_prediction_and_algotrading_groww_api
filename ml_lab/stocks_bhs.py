@@ -359,6 +359,9 @@ def main_current_only() -> int:
     cur = current_signals(L, feats, seq, runs[-1], rep.get("chosen_on_2013_2019", "xgboost"))
     rep["signals_as_of"] = str(L.date.max().date())
     (runs[-1] / "report.json").write_text(json.dumps(rep, indent=1, default=str))
+    hist = runs[-1] / "signals_history"                       # dated snapshot -> later checked against real prices
+    hist.mkdir(exist_ok=True)
+    cur.to_csv(hist / f"{rep['signals_as_of']}.csv", index=False)
     print(f"current signals for {len(cur)} stocks, {len(MODELS)} models, as of {rep['signals_as_of']} -> {runs[-1]}")
     return 0
 

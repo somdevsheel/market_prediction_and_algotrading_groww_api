@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { api } from "../api";
 import { Chart } from "../components/Chart";
 import { Col, DataTable } from "../components/DataTable";
@@ -6,6 +6,7 @@ import { StockItem, StockSearch } from "../components/StockSearch";
 import { Card, Chip, Seg, Stat, State } from "../components/ui";
 import { inr, num, pct, tone } from "../format";
 import { usePoll } from "../hooks";
+import { PredictionPerformance, RefreshBar } from "./StocksPerformance";
 
 type Sig = "" | "BUY" | "HOLD" | "SELL";
 const SIG_TONE: Record<string, "ok" | "bad" | ""> = { BUY: "ok", SELL: "bad", HOLD: "" };
@@ -167,19 +168,21 @@ function ModelSignals({ ms, chosen }: { ms: any; chosen: string }) {
 }
 
 export default function Stocks({ theme }: { theme: string }) {
-  const ml = usePoll(() => api.get("/api/stocks/ml"));
+  const [reloadKey, setReloadKey] = useState(0);
+  const refreshed = useCallback(() => setReloadKey((k) => k + 1), []);
+  const ml = usePoll(() => api.get("/api/stocks/ml"), 0, [reloadKey]);
   const [model, setModel] = useState<string>("");
   const [filter, setFilter] = useState<Sig>("");
   const [q, setQ] = useState("");
   const [compare, setCompare] = useState<string>("ensemble");
   const [pick, setPick] = useState<string>("");
-  const sig = usePoll(() => api.get(`/api/stocks/signals?model=${model}`), 0, [model]);
+  const sig = usePoll(() => api.get(`/api/stocks/signals?model=${model}`), 0, [model, reloadKey]);
   const chosen: string = ml.data?.chosen || "xgboost";
   const active: string = sig.data?.model || chosen;
   const best = (ml.data?.models || []).find((r: any) => r.model === chosen) || {};
   const selSym = pick || sig.data?.portfolio?.[0]?.sym || "";
   const choose = (r: any) => { setPick(r.sym); window.scrollTo({ top: 0, behavior: "smooth" }); };
-  const ms = usePoll(() => (selSym ? api.get(`/api/stocks/model_signals?sym=${encodeURIComponent(selSym)}`) : Promise.resolve(null)), 0, [selSym]);
+  const ms = usePoll(() => (selSym ? api.get(`/api/stocks/model_signals?sym=${encodeURIComponent(selSym)}`) : Promise.resolve(null)), 0, [selSym, reloadKey]);
   const markers = useMemo<Marker[]>(() => (ms.data?.history || [])
     .filter((h: any) => h[active] === "BUY" || h[active] === "SELL")
     .map((h: any) => h[active] === "BUY"
@@ -250,6 +253,10 @@ export default function Stocks({ theme }: { theme: string }) {
         Real-money trading stays locked until you approve it.
       </div>
 
+      <div className="section">
+        <RefreshBar onDone={refreshed} />
+      </div>
+
       <div className="grid section">
         <Stat k="Best model (chosen on 2013–19)" v={name(chosen)} s={`run ${ml.data?.run || ""}`} />
         <Stat k="Return / yr 2013–26" v={pct(best.cagr_pct)} tone={tone(best.cagr_pct)} s={`unseen 2020–26: ${pct(best.cagr_2020_26_holdout)}`} />
@@ -278,6 +285,10 @@ export default function Stocks({ theme }: { theme: string }) {
             </div>
           </State>
         </Card>
+      </div>
+
+      <div className="section">
+        <PredictionPerformance name={name} reloadKey={reloadKey} onPick={(s) => { setPick(s); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
       </div>
 
       <div className="section">
@@ -321,7 +332,8 @@ export default function Stocks({ theme }: { theme: string }) {
         <Card title="Method & caveats">
           <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.7, fontSize: 13 }}>
             {Object.entries(ml.data?.method || {}).map(([k, v]) => <li key={k}><b>{k}:</b> {String(v)}</li>)}
-            <li><b>refresh:</b> <span className="mono">python3 -m ml_lab.data.all_stocks</span> (prices) then <span className="mono">python3 -m ml_lab.stocks_bhs</span> (~40 min, retrains and writes new signals) and <span className="mono">python3 -m ml_lab.stock_price_forecast</span> (~1 min, price ranges)</li>
+            <li><b>daily refresh:</b> the “Update data & retrain” button (or <span className="mono">python3 -m ml_lab.daily_refresh</span>) — new prices, retrains the 13 models on all data, new signals + forecasts (~10–15 min)</li>
+            <li><b>full re-test:</b> <span className="mono">python3 -m ml_lab.stocks_bhs</span> re-runs the yearly walk-forward backtest (~40+ min)</li>
           </ul>
         </Card>
       </div>

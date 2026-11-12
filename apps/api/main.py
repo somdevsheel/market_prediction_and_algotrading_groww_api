@@ -762,3 +762,154 @@ def stocks_model_signals(sym: str):
                    "history": hist[::-1], "stock_stats": stats,
                    "note": "History = out-of-sample: each month's signal came from models trained only on earlier years. "
                            "A stock appears only in months when it met the liquidity filter."})
+
+
+# ---------------------------------------------------------------- Stocks ML: prediction performance + one-click refresh
+def _perf_prices(start: str) -> pd.DataFrame:
+    """Wide close-price table (date x sym) from `start`, cached until all_daily.parquet changes."""
+    path = resolve_path(CFG, "data_lake") / "silver" / "yahoo_stocks" / "all_daily.parquet"
+    key = ("perfpx", start, path.stat().st_mtime if path.exists() else 0)
+    if key not in _STOCK_CACHE:
+        for k in [k for k in _STOCK_CACHE if isinstance(k, tuple) and k and k[0] == "perfpx"]:
+            _STOCK_CACHE.pop(k)
+        d = pd.read_parquet(path, columns=["sym", "date", "close"], filters=[("date", ">=", pd.Timestamp(start))]) \
+            if path.exists() else pd.DataFrame(columns=["sym", "date", "close"])
+        _STOCK_CACHE[key] = d.pivot_table(index="date", columns="sym", values="close", aggfunc="last").sort_index()
+    return _STOCK_CACHE[key]
+
+
+def _nifty_close() -> pd.Series:
+    p = resolve_path(CFG, "data_lake") / "silver" / "yahoo" / "NIFTY.parquet"
+    if not p.exists():
+        return pd.Series(dtype=float)
+    n = pd.read_parquet(p, columns=["date", "close"])
+    return n.set_index(pd.to_datetime(n.date)).close.astype(float)
+
+
+def _grp(name: str, r: pd.DataFrame) -> dict:
+    def st(col):
+        x = r[col].dropna()
+        return {"avg": round(float(x.mean()), 2) if len(x) else None, "median": round(float(x.median()), 2) if len(x) else None,
+                "up": int((x > 0).sum()), "down": int((x < 0).sum()), "n": int(len(x))}
+    return {"group": name, "stocks": int(len(r)), "next": st("ret_next_pct"), "since": st("ret_since_pct")}
+
+
+@app.get("/api/stocks/performance")
+def stocks_performance(date: str = "", model: str = "", slots: int = 10):
+    """How the stocks predicted on a past day actually did: next trading day and since the signal (to the latest close)."""
+    rd = _bhs_run()
+    rep = json.loads((rd / "report.json").read_text()) if (rd / "report.json").exists() else {}
+    hd = rd / "signals_history"
+    snaps = sorted(p.stem for p in hd.glob("*.csv")) if hd.exists() else []
+    if not snaps:
+        return _clean({"snapshots": [], "note": "No saved signal snapshots yet. Use 'Update data & retrain' after market close."})
+    px = _perf_prices(snaps[0])
+    days = px.index
+    latest = days.max() if len(days) else None
+    usable = [s for s in snaps if latest is not None and pd.Timestamp(s) < latest]
+    d0 = date if date in snaps else (usable[-1] if usable else snaps[-1])
+    cur = pd.read_csv(hd / f"{d0}.csv")
+    models = sorted({c[: -len("_signal")] for c in cur.columns if c.endswith("_signal")})
+    chosen = rep.get("chosen_on_2013_2019") or "xgboost"
+    m = model if model in models else (chosen if chosen in models else models[0])
+    t0 = pd.Timestamp(d0)
+    after = days[days > t0]
+    t1 = after[0] if len(after) else None
+    base = px.loc[t0] if t0 in px.index else pd.Series(dtype=float)
+    df = pd.DataFrame({"sym": cur.sym, "signal": cur[f"{m}_signal"], "p_buy": cur[f"{m}_p_buy"], "p_sell": cur[f"{m}_p_sell"]})
+    df["score"] = (df.p_buy - df.p_sell).round(3)
+    df["close_signal"] = df.sym.map(base)
+    df["close_next"] = df.sym.map(px.loc[t1]) if t1 is not None else np.nan
+    df["close_latest"] = df.sym.map(px.loc[latest]) if t1 is not None else np.nan
+    df["ret_next_pct"] = ((df.close_next / df.close_signal - 1) * 100).round(2)
+    df["ret_since_pct"] = ((df.close_latest / df.close_signal - 1) * 100).round(2)
+    for c in ("ret_next_pct", "ret_since_pct"):                 # bad ticks / splits not yet adjusted
+        df.loc[df[c].abs() > 40, c] = np.nan
+    df = df.merge(_stock_names()[["sym", "name"]], on="sym", how="left").sort_values("score", ascending=False)
+    buy = df[df.signal == "BUY"]
+    top = buy.head(slots)
+    df["top"] = df.sym.isin(top.sym)
+    groups = [_grp(f"Top-{slots} portfolio", top), _grp("BUY", buy), _grp("HOLD", df[df.signal == "HOLD"]),
+              _grp("SELL", df[df.signal == "SELL"]), _grp("All stocks", df)]
+    nc = _nifty_close()
+
+    def nret(a, b):
+        try:
+            return round(float(nc.asof(b) / nc.asof(a) - 1) * 100, 2)
+        except Exception:  # noqa: BLE001
+            return None
+    nifty = {"next": nret(t0, t1) if t1 is not None else None, "since": nret(t0, latest) if t1 is not None else None}
+
+    # day-by-day track record of every snapshot that has a next trading day
+    track = []
+    for s in snaps:
+        ts = pd.Timestamp(s)
+        nx = days[days > ts]
+        if not len(nx) or ts not in px.index:
+            continue
+        c = pd.read_csv(hd / f"{s}.csv")
+        if f"{m}_signal" not in c.columns:
+            continue
+        r = (px.loc[nx[0]] / px.loc[ts] - 1) * 100
+        r = r[r.abs() <= 40]
+        x = pd.DataFrame({"sym": c.sym, "sig": c[f"{m}_signal"], "score": c[f"{m}_p_buy"] - c[f"{m}_p_sell"]})
+        x["r"] = x.sym.map(r)
+        b = x[x.sig == "BUY"].sort_values("score", ascending=False)
+        avg = lambda y: round(float(y.r.mean()), 2) if y.r.notna().any() else None  # noqa: E731
+        track.append({"date": s, "next_day": str(nx[0].date()), "top": avg(b.head(slots)), "buy": avg(b),
+                      "hold": avg(x[x.sig == "HOLD"]), "sell": avg(x[x.sig == "SELL"]), "all": avg(x),
+                      "nifty": nret(ts, nx[0]), "buy_up_pct": round(float((b.r > 0).mean() * 100), 1) if b.r.notna().any() else None,
+                      "buy_minus_all": None if avg(b) is None or avg(x) is None else round(avg(b) - avg(x), 2)})
+    return _clean({"snapshots": snaps, "date": d0, "model": m, "models": models, "chosen": chosen, "slots": slots,
+                   "next_day": str(t1.date()) if t1 is not None else None, "latest": str(latest.date()) if latest is not None else None,
+                   "groups": groups, "nifty": nifty, "track": track[::-1],
+                   "rows": df.replace({np.nan: None}).to_dict("records"),
+                   "note": None if t1 is not None else "No prices after this date yet — check again after the next trading day's update."})
+
+
+_REFRESH_SEEN: dict = {}
+
+
+@app.get("/api/stocks/refresh")
+def stocks_refresh_status(log_lines: int = 25):
+    from ml_lab.daily_refresh import LOG, read_status
+
+    st = read_status()
+    if st.get("state") in ("done", "failed") and _REFRESH_SEEN.get("finished") != st.get("finished"):
+        _REFRESH_SEEN["finished"] = st.get("finished")           # new results on disk -> drop cached tables
+        _STOCK_CACHE.clear()
+    tail = []
+    if LOG.exists():
+        lines = [x for x in LOG.read_text(errors="replace").splitlines() if x.strip()]
+        tail = [x[:220] for x in lines[-log_lines:]]
+    rd = None
+    try:
+        rd = _bhs_run()
+    except HTTPException:
+        pass
+    rep = json.loads((rd / "report.json").read_text()) if rd and (rd / "report.json").exists() else {}
+    path = resolve_path(CFG, "data_lake") / "silver" / "yahoo_stocks" / "all_daily.parquet"
+    data_to = None
+    if path.exists():
+        key = ("data_to", path.stat().st_mtime)
+        if key not in _STOCK_CACHE:
+            _STOCK_CACHE[key] = str(pd.read_parquet(path, columns=["date"]).date.max().date())
+        data_to = _STOCK_CACHE[key]
+    return _clean({**st, "log_tail": tail, "signals_as_of": rep.get("signals_as_of"), "data_to": data_to})
+
+
+@app.post("/api/stocks/refresh")
+def stocks_refresh_start():
+    """Start the daily refresh (prices -> retrain models -> signals -> forecasts) as a background process."""
+    import subprocess
+    import sys
+
+    from ml_lab.daily_refresh import RESULTS, now, read_status, write_status
+
+    if read_status().get("state") == "running":
+        raise HTTPException(409, "A refresh is already running.")
+    RESULTS.mkdir(parents=True, exist_ok=True)
+    p = subprocess.Popen([sys.executable, "-m", "ml_lab.daily_refresh"], cwd=PROJECT_ROOT,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    write_status(state="running", pid=p.pid, started=now(), finished=None, error=None, steps=[], step=0)
+    return _clean(read_status())
