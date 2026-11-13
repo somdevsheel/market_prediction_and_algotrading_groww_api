@@ -8,6 +8,11 @@ Rules (the same as the walk-forward backtest, applied to the daily signal snapsh
       - fill free slots (max 10) with the highest-ranked BUY stocks (P(BUY) - P(SELL)), equity / 10 each, whole shares
   * trades at the open; Groww delivery charges + 0.1-0.4 % slippage (same cost model as the backtest)
   * every portfolio is marked at each day's close
+Two portfolio types per model:
+  * top10   : the 10 highest-ranked BUY stocks, whole shares (what you could really buy with Rs 1 lakh)
+  * all_buy : EVERY BUY stock, equal amount each.  With hundreds of BUY stocks Rs 1 lakh gives ~Rs 100-200 per stock,
+              so this uses fractional shares (not possible on Groww) and Groww's minimum charges (Rs 5 brokerage per order,
+              Rs 15.93 DP per stock sold) weigh heavily -> read its BEFORE-charges return as "signal quality"
 Benchmarks: NIFTY 50 and an equal-weight basket of all liquid stocks (both from the same first open, no charges).
 
     python3 -m ml_lab.virtual_portfolio
@@ -57,6 +62,82 @@ def _next_rebalance(first: pd.Timestamp, done: int) -> str | None:
         return None
 
 
+def _run_model(m, mode, days, rebal, snap_before, O, C, names) -> dict:
+    """mode 'top10': top-10 BUY, whole shares.  mode 'all_buy': every BUY stock, equal amount each, fractional shares."""
+    cash, hold, trades, charges = CAPITAL, {}, [], 0.0           # hold: sym -> {qty, cost, buy_price, ...}
+    gross_cash = CAPITAL                                         # same trades, but no charges / slippage
+    curve, gcurve = [], []
+    for t in days:
+        if t in rebal:
+            sd, s = snap_before(t)
+            if f"{m}_signal" in s.columns:
+                sig = dict(zip(s.sym, s[f"{m}_signal"]))
+                tv = dict(zip(s.sym, s.tv))
+                for sym in list(hold):                           # sell SELL / out-of-universe at the open
+                    p = O.loc[t].get(sym, np.nan)
+                    if sig.get(sym, "SELL") == "SELL" and np.isfinite(p):
+                        h = hold.pop(sym)
+                        val = h["qty"] * p
+                        c = order_cost(val, "sell", slippage(tv.get(sym, 0)))
+                        cash += val - c
+                        gross_cash += val
+                        charges += c
+                        trades.append({"date": str(t.date()), "side": "SELL", "sym": sym, "qty": h["qty"], "price": round(float(p), 2),
+                                       "pnl": round(val - c - h["cost"]), "signal_date": str(sd.date())})
+                eq = cash + sum(h["qty"] * O.loc[t].get(k, np.nan) for k, h in hold.items() if np.isfinite(O.loc[t].get(k, np.nan)))
+                s = s.assign(score=s[f"{m}_p_buy"] - s[f"{m}_p_sell"])
+                cand = s[(s[f"{m}_signal"] == "BUY") & ~s.sym.isin(list(hold))].sort_values("score", ascending=False)
+                cand = cand[[np.isfinite(O.loc[t].get(x, np.nan)) and O.loc[t].get(x, 0) > 0 for x in cand.sym]]
+                slots = SLOTS if mode == "top10" else len(hold) + len(cand)
+                for _, r in cand.iterrows():
+                    if len(hold) >= slots:
+                        break
+                    p = float(O.loc[t][r.sym])
+                    sl = slippage(r.tv)
+                    budget = min(eq / max(slots, 1), cash)
+                    if mode == "top10":
+                        q = int(budget // (p * (1 + sl) * 1.003))
+                    else:                                        # fractional: leave room for this order's charges
+                        q = round(max(budget - order_cost(budget, "buy", sl), 0) / p, 4)
+                    if q <= 0:
+                        continue
+                    val = q * p
+                    c = order_cost(val, "buy", sl)
+                    if val + c > cash + 1e-6:
+                        continue
+                    cash -= val + c
+                    gross_cash -= val
+                    charges += c
+                    hold[r.sym] = {"qty": q, "cost": val + c, "buy_price": round(p, 2), "entry_date": str(t.date()),
+                                   "p_buy": round(float(r[f"{m}_p_buy"]), 3)}
+                    trades.append({"date": str(t.date()), "side": "BUY", "sym": r.sym, "qty": q, "price": round(p, 2),
+                                   "pnl": None, "signal_date": str(sd.date())})
+        mv = 0.0
+        for k, h in hold.items():
+            p = C.loc[t].get(k, np.nan)
+            if not np.isfinite(p):                              # no trade today: last known close
+                col = C[k].loc[:t].dropna()
+                p = col.iloc[-1] if len(col) else h["buy_price"]
+            h["last"] = float(p)
+            mv += h["qty"] * p
+        curve.append({"date": str(t.date()), "value": round(cash + mv, 2)})
+        gcurve.append({"date": str(t.date()), "value": round(gross_cash + mv, 2)})
+    sell_cost = sum(order_cost(h["qty"] * h["last"], "sell", 0.002) for h in hold.values())
+    value, gvalue = curve[-1]["value"], gcurve[-1]["value"]
+    return {"model": m, "family": FAMILY.get(m, ""), "mode": mode, "value": round(value),
+            "return_pct": round((value / CAPITAL - 1) * 100, 2), "gross_return_pct": round((gvalue / CAPITAL - 1) * 100, 2),
+            "pnl": round(value - CAPITAL), "charges_paid": round(charges), "sell_charges_now": round(sell_cost),
+            "net_if_sold": round(value - sell_cost - CAPITAL), "net_if_sold_pct": round((value - sell_cost - CAPITAL) / CAPITAL * 100, 2),
+            "cash": round(cash), "n_holdings": len(hold), "trades": len(trades),
+            "holdings": [{"sym": k, "name": names.get(k, k), "qty": h["qty"], "buy_price": h["buy_price"], "last": round(h["last"], 2),
+                          "value": round(h["qty"] * h["last"]), "pnl": round(h["qty"] * h["last"] - h["cost"]),
+                          "ret_pct": round((h["last"] / h["buy_price"] - 1) * 100, 2), "entry_date": h["entry_date"], "p_buy": h["p_buy"]}
+                         for k, h in sorted(hold.items(), key=lambda kv: -(kv[1]["last"] / kv[1]["buy_price"]))],
+            # all-BUY: hundreds of identical opening buys -> keep sells only (each holding shows its own buy date / price)
+            "trade_log": trades if mode == "top10" else [x for x in trades if x["side"] == "SELL"],
+            "buys": sum(x["side"] == "BUY" for x in trades), "curve": curve, "gross_curve": gcurve}
+
+
 def simulate(start_signal: str = START_SIGNAL) -> dict:
     snaps = _snapshots()
     if pd.Timestamp(start_signal) not in snaps:
@@ -83,68 +164,11 @@ def simulate(start_signal: str = START_SIGNAL) -> dict:
 
     first = snap_before(days[0])[1]
     models = sorted({c[: -len("_signal")] for c in first.columns if c.endswith("_signal")})
-    out = {}
-    for m in models:
-        cash, hold, trades, charges = CAPITAL, {}, [], 0.0      # hold: sym -> {qty, cost, entry_date}
-        curve = []
-        for t in days:
-            if t in rebal:
-                sd, s = snap_before(t)
-                if f"{m}_signal" in s.columns:
-                    sig = dict(zip(s.sym, s[f"{m}_signal"]))
-                    tv = dict(zip(s.sym, s.tv))
-                    for sym in list(hold):                     # sell SELL / out-of-universe at the open
-                        p = O.loc[t].get(sym, np.nan)
-                        if sig.get(sym, "SELL") == "SELL" and np.isfinite(p):
-                            h = hold.pop(sym)
-                            val = h["qty"] * p
-                            c = order_cost(val, "sell", slippage(tv.get(sym, 0)))
-                            cash += val - c
-                            charges += c
-                            trades.append({"date": str(t.date()), "side": "SELL", "sym": sym, "qty": h["qty"], "price": round(float(p), 2),
-                                           "pnl": round(val - c - h["cost"]), "signal_date": str(sd.date())})
-                    eq = cash + sum(h["qty"] * O.loc[t].get(k, np.nan) for k, h in hold.items() if np.isfinite(O.loc[t].get(k, np.nan)))
-                    s = s.assign(score=s[f"{m}_p_buy"] - s[f"{m}_p_sell"])
-                    for _, r in s[(s[f"{m}_signal"] == "BUY") & ~s.sym.isin(list(hold))].sort_values("score", ascending=False).iterrows():
-                        if len(hold) >= SLOTS:
-                            break
-                        p = O.loc[t].get(r.sym, np.nan)
-                        if not np.isfinite(p) or p <= 0:
-                            continue
-                        sl = slippage(r.tv)
-                        q = int(min(eq / SLOTS, cash) // (p * (1 + sl) * 1.003))
-                        if q <= 0:
-                            continue
-                        val = q * p
-                        c = order_cost(val, "buy", sl)
-                        if val + c > cash:
-                            continue
-                        cash -= val + c
-                        charges += c
-                        hold[r.sym] = {"qty": q, "cost": val + c, "buy_price": round(float(p), 2), "entry_date": str(t.date()),
-                                       "p_buy": round(float(r[f"{m}_p_buy"]), 3)}
-                        trades.append({"date": str(t.date()), "side": "BUY", "sym": r.sym, "qty": q, "price": round(float(p), 2),
-                                       "pnl": None, "signal_date": str(sd.date())})
-            mv = 0.0
-            for k, h in hold.items():
-                p = C.loc[t].get(k, np.nan)
-                if not np.isfinite(p):                          # no trade today: last known close
-                    col = C[k].loc[:t].dropna()
-                    p = col.iloc[-1] if len(col) else h["buy_price"]
-                h["last"] = float(p)
-                mv += h["qty"] * p
-            curve.append({"date": str(t.date()), "value": round(cash + mv, 2)})
-        last = C.index.max()
-        sell_cost = sum(order_cost(h["qty"] * h["last"], "sell", 0.002) for h in hold.values())
-        value = curve[-1]["value"]
-        out[m] = {"model": m, "family": FAMILY.get(m, ""), "value": round(value), "return_pct": round((value / CAPITAL - 1) * 100, 2),
-                  "pnl": round(value - CAPITAL), "charges_paid": round(charges), "net_if_sold": round(value - sell_cost - CAPITAL),
-                  "cash": round(cash), "n_holdings": len(hold), "trades": len(trades),
-                  "holdings": [{"sym": k, "name": names.get(k, k), "qty": h["qty"], "buy_price": h["buy_price"], "last": round(h["last"], 2),
-                                "value": round(h["qty"] * h["last"]), "pnl": round(h["qty"] * h["last"] - h["cost"]),
-                                "ret_pct": round((h["last"] / h["buy_price"] - 1) * 100, 2), "entry_date": h["entry_date"], "p_buy": h["p_buy"]}
-                               for k, h in sorted(hold.items(), key=lambda kv: -kv[1]["qty"] * kv[1]["last"])],
-                  "trade_log": trades, "curve": curve}
+    out: dict = {"top10": {}, "all_buy": {}}
+    for mode in out:
+        for m in models:
+            out[mode][m] = _run_model(m, mode, days, rebal, snap_before, O, C, names)
+    last = C.index.max()
     # benchmarks from the same first open
     t0 = days[0]
     n = pd.read_parquet(LAKE / "silver" / "yahoo" / "NIFTY.parquet").set_index("date")
@@ -158,7 +182,7 @@ def simulate(start_signal: str = START_SIGNAL) -> dict:
     return {"state": "running", "start_signal": start_signal, "first_buy": str(t0.date()), "last_mark": str(last.date()),
             "days": len(days), "next_rebalance": _next_rebalance(days[0], len(days)),
             "rebalance_every_days": REBAL_DAYS, "capital": CAPITAL, "slots": SLOTS,
-            "models": out, "benchmarks": bench, "rules": __doc__}
+            "models": out["top10"], "portfolios": out, "benchmarks": bench, "rules": __doc__}
 
 
 def main() -> int:
