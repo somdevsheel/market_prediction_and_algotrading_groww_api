@@ -61,7 +61,9 @@ def _clean(o):
 
 @app.get("/")
 def index():
-    return FileResponse(WEB_DIST / "index.html" if (WEB_DIST / "index.html").exists() else STATIC)
+    # never cache the page shell: a rebuilt app (new hashed /assets/*.js) must load on the next refresh
+    return FileResponse(WEB_DIST / "index.html" if (WEB_DIST / "index.html").exists() else STATIC,
+                        headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
 @app.get("/api/summary")

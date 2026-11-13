@@ -18,12 +18,12 @@ const signed = (v: unknown, d = 2) => <span className={tone(v)}>{typeof v === "n
 const rs = (v: unknown) => <span className={tone(v)}>{typeof v === "number" ? `${v > 0 ? "+" : ""}${inr(v)}` : "—"}</span>;
 
 /** Simulated Rs 1 lakh portfolio for every ML / DL model, following the daily signals (no real money). */
-export default function Virtual({ theme }: { theme: string }) {
+export default function Virtual({ theme, initialMode = "top10" }: { theme: string; initialMode?: Mode }) {
   const v = usePoll(() => api.get("/api/stocks/virtual"), 5 * 60_000);
   const d = v.data;
   const [sel, setSel] = useState<string>("");
   const [shown, setShown] = useState<string[] | null>(null);
-  const [mode, setMode] = useState<Mode>("top10");
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [hq, setHq] = useState("");
   const allBuy = mode === "all_buy";
   const ms: Record<string, any> = d?.portfolios?.[mode] || (mode === "top10" ? d?.models : null) || {};

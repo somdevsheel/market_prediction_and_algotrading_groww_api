@@ -22,7 +22,8 @@ const PAGES = [
   { id: "backtests", label: "Backtests", ic: "↺" },
   { id: "research", label: "Research", ic: "σ" },
   { id: "stocks", label: "Stocks ML", ic: "▲" },
-  { id: "virtual", label: "Virtual Portfolio", ic: "◇" },
+  { id: "virtual", label: "Virtual · Top-10", ic: "◇" },
+  { id: "virtual_all", label: "Virtual · All BUY", ic: "◆" },
   { id: "health", label: "Health", ic: "♥" },
 ] as const;
 type PageId = (typeof PAGES)[number]["id"];
@@ -85,7 +86,8 @@ export default function App() {
           {page === "backtests" && <Backtests theme={theme} />}
           {page === "research" && <Research theme={theme} />}
           {page === "stocks" && <Stocks theme={theme} />}
-          {page === "virtual" && <Virtual theme={theme} />}
+          {page === "virtual" && <Virtual key="top10" theme={theme} initialMode="top10" />}
+          {page === "virtual_all" && <Virtual key="all_buy" theme={theme} initialMode="all_buy" />}
           {page === "health" && <Health />}
         </div>
       </main>
