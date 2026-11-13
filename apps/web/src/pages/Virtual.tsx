@@ -17,7 +17,7 @@ type Mode = "top10" | "all_buy";
 const signed = (v: unknown, d = 2) => <span className={tone(v)}>{typeof v === "number" ? `${v > 0 ? "+" : ""}${v.toFixed(d)}%` : "—"}</span>;
 const rs = (v: unknown) => <span className={tone(v)}>{typeof v === "number" ? `${v > 0 ? "+" : ""}${inr(v)}` : "—"}</span>;
 
-/** Simulated Rs 1 lakh portfolio for every ML / DL model, following the daily signals (no real money). */
+/** Simulated portfolios (Rs 1 lakh top-10, Rs 2 crore all-BUY) for every ML / DL model, following the daily signals (no real money). */
 export default function Virtual({ theme, initialMode = "top10" }: { theme: string; initialMode?: Mode }) {
   const v = usePoll(() => api.get("/api/stocks/virtual"), 5 * 60_000);
   const d = v.data;
@@ -27,7 +27,9 @@ export default function Virtual({ theme, initialMode = "top10" }: { theme: strin
   const [hq, setHq] = useState("");
   const allBuy = mode === "all_buy";
   const ms: Record<string, any> = d?.portfolios?.[mode] || (mode === "top10" ? d?.models : null) || {};
-  const metric = allBuy ? "gross_return_pct" : "return_pct";      // all-BUY basket: judge the signals before charges
+  const metric = "return_pct";
+  const cap: number = d?.capital_by_mode?.[mode] ?? (allBuy ? 20_000_000 : 100_000);
+  const bench = d?.benchmarks_by_mode?.[mode] ?? d?.benchmarks;
 
   const board = useMemo(() => Object.values(ms).sort((a: any, b: any) => b[metric] - a[metric])
     .map((m: any, i: number) => ({ ...m, rank: i + 1 })), [ms, metric]);
@@ -44,14 +46,14 @@ export default function Virtual({ theme, initialMode = "top10" }: { theme: strin
   const series: Series[] = useMemo(() => {
     if (!d) return [];
     const line = (n: string, c: string, pts: any[]) => ({ name: n, color: c, data: pts.map((p: any) => ({ time: p.date, value: p.value })) });
-    const out: Series[] = plot.filter((m) => ms[m]).map((m, i) => line(name(m), PALETTE[i % PALETTE.length], allBuy ? ms[m].gross_curve : ms[m].curve));
-    out.push(line("NIFTY 50", "--muted", d.benchmarks?.nifty?.curve || []));
-    out.push(line("All liquid stocks", "--warn", d.benchmarks?.all?.curve || []));
+    const out: Series[] = plot.filter((m) => ms[m]).map((m, i) => line(name(m), PALETTE[i % PALETTE.length], ms[m].curve));
+    out.push(line("NIFTY 50", "--muted", bench?.nifty?.curve || []));
+    out.push(line("All liquid stocks", "--warn", bench?.all?.curve || []));
     return out;
-  }, [d, plot, ms, allBuy]);
+  }, [d, plot, ms, bench]);
 
   const best = board[0];
-  const nifty = d?.benchmarks?.nifty?.return_pct;
+  const nifty = bench?.nifty?.return_pct;
   const beat = board.filter((m: any) => typeof nifty === "number" && m[metric] > nifty).length;
 
   const boardCols: Col<any>[] = [
@@ -62,7 +64,7 @@ export default function Virtual({ theme, initialMode = "top10" }: { theme: strin
     { key: "gross_return_pct", label: "Before charges", num: true, render: (r) => signed(r.gross_return_pct) },
     { key: "return_pct", label: "After buy charges", num: true, render: (r) => signed(r.return_pct) },
     { key: "pnl", label: "Profit / loss", num: true, render: (r) => rs(r.pnl) },
-    { key: "vs", label: `vs NIFTY${allBuy ? " (before charges)" : ""}`, num: true, value: (r) => r[metric] - (nifty ?? 0), render: (r) => signed(typeof nifty === "number" ? r[metric] - nifty : null) },
+    { key: "vs", label: "vs NIFTY", num: true, value: (r) => r[metric] - (nifty ?? 0), render: (r) => signed(typeof nifty === "number" ? r[metric] - nifty : null) },
     { key: "net_if_sold", label: "If sold today (net)", num: true, render: (r) => rs(r.net_if_sold) },
     { key: "charges_paid", label: "Charges paid", num: true, render: (r) => inr(r.charges_paid) },
     { key: "n_holdings", label: "Stocks", num: true },
@@ -95,7 +97,8 @@ export default function Virtual({ theme, initialMode = "top10" }: { theme: strin
   return (
     <State loading={v.loading && !d} error={v.error} empty={d && d.state !== "running" && (d.msg || "Not started yet")}>
       <div className="banner warn">
-        Virtual money only — every ML / DL model gets a simulated <b>₹1,00,000</b> and follows its own signals from the{" "}
+        Virtual money only — every ML / DL model gets simulated money (<b>₹1,00,000</b> for its top-10, <b>₹2 crore</b> for all its BUY stocks)
+        and follows its own signals from the{" "}
         <b className="mono">{d?.start_signal}</b> close. Nothing is bought or sold for real.
       </div>
 
@@ -103,33 +106,30 @@ export default function Virtual({ theme, initialMode = "top10" }: { theme: strin
         <Seg<Mode> value={mode} onChange={(m) => { setMode(m); setHq(""); }} options={[
           { v: "top10", label: "Top-10 BUY portfolio" }, { v: "all_buy", label: "All BUY stocks" }]} />
         <span className="muted" style={{ fontSize: 13 }}>
-          {allBuy ? "₹1,00,000 split equally across EVERY stock the model rates BUY (hundreds of stocks)."
+          {allBuy ? "₹2,00,00,000 (₹2 crore) split equally across EVERY stock the model rates BUY — whole shares."
                   : "₹1,00,000 in the model's 10 highest-ranked BUY stocks (₹10,000 each, whole shares)."}
         </span>
       </div>
       {allBuy && (
-        <div className="banner bad section" style={{ fontSize: 13 }}>
-          <b>Read “Before charges” for this view.</b> With ₹1 lakh over hundreds of stocks each position is only ~₹100–200, so it uses
-          fractional shares (not possible on Groww), and Groww's minimum charges — ₹5 brokerage per order and ₹15.93 DP charge per stock
-          sold — eat a big share of such tiny positions (see “After buy charges” / “If sold today”). It shows how good the BUY signals are
-          as a whole; to hold every BUY stock for real you would need roughly ₹20,000 per stock (₹1 crore+).
+        <div className="banner section" style={{ fontSize: 13 }}>
+          Why ₹2 crore: the model rates hundreds of stocks BUY (up to ~950). ₹2 crore gives each at least ~₹21,000, so every position uses
+          whole shares and Groww's fixed charges (₹5 minimum brokerage, ₹15.93 DP charge per stock sold) stay small. Returns are in % —
+          compare them directly with the top-10 portfolios (₹1 lakh). “Before charges” shows the pure signal quality.
         </div>)}
 
       <div className="grid section">
         <Stat k="Started" v={<span className="mono">{d?.first_buy}</span>} s={`signals of ${d?.start_signal} · bought at the open`} />
         <Stat k="Marked at" v={<span className="mono">{d?.last_mark}</span>} s={`${d?.days ?? "—"} trading days · next rebalance ${d?.next_rebalance ?? "—"}`} />
-        <Stat k={`Best model${allBuy ? " (before charges)" : ""}`} v={best ? name(best.model) : "—"} tone={tone(best?.[metric])} s={best ? <>{signed(best[metric])} · {best.n_holdings} stocks</> : ""} />
-        <Stat k={`${name(chosen)} ⭐ (main model)`} v={signed(ms[chosen]?.[metric])} s={ms[chosen] ? <>{allBuy ? `${ms[chosen].n_holdings} stocks · after charges ` : `${inr(ms[chosen].value)} · `}{allBuy ? signed(ms[chosen].return_pct) : <>net if sold {rs(ms[chosen].net_if_sold)}</>}</> : ""} />
-        <Stat k="NIFTY 50 / all stocks" v={<>{signed(nifty)} / {signed(d?.benchmarks?.all?.return_pct)}</>} s={`${beat} of ${board.length} models ahead of NIFTY`} />
+        <Stat k="Best model" v={best ? name(best.model) : "—"} tone={tone(best?.[metric])} s={best ? <>{signed(best[metric])} · {best.n_holdings} stocks</> : ""} />
+        <Stat k={`${name(chosen)} ⭐ (main model)`} v={signed(ms[chosen]?.[metric])} s={ms[chosen] ? <>{inr(ms[chosen].value)}{allBuy ? <> · {ms[chosen].n_holdings} stocks · before charges {signed(ms[chosen].gross_return_pct)}</> : <> · net if sold {rs(ms[chosen].net_if_sold)}</>}</> : ""} />
+        <Stat k="NIFTY 50 / all stocks" v={<>{signed(nifty)} / {signed(bench?.all?.return_pct)}</>} s={`${beat} of ${board.length} models ahead of NIFTY`} />
       </div>
 
       <div className="section">
-        <Card title={`Value of ₹1,00,000 · each model vs NIFTY 50 and all liquid stocks${allBuy ? " · before charges" : ""}`}>
+        <Card title={`Value of ${inr(cap)} · each model vs NIFTY 50 and all liquid stocks`}>
           <Chart series={series} theme={theme} height={320} />
           <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-            Tick “Chart” in the table to add or remove models. {allBuy
-              ? "Lines are BEFORE charges here (signal quality); the after-charges numbers are in the table."
-              : "Values are after buying charges; selling charges are in “If sold today”."}
+            Tick “Chart” in the table to add or remove models. Values are after buying charges; selling charges are in “If sold today”.
           </div>
         </Card>
       </div>

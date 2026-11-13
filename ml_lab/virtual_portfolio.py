@@ -10,9 +10,8 @@ Rules (the same as the walk-forward backtest, applied to the daily signal snapsh
   * every portfolio is marked at each day's close
 Two portfolio types per model:
   * top10   : the 10 highest-ranked BUY stocks, whole shares (what you could really buy with Rs 1 lakh)
-  * all_buy : EVERY BUY stock, equal amount each.  With hundreds of BUY stocks Rs 1 lakh gives ~Rs 100-200 per stock,
-              so this uses fractional shares (not possible on Groww) and Groww's minimum charges (Rs 5 brokerage per order,
-              Rs 15.93 DP per stock sold) weigh heavily -> read its BEFORE-charges return as "signal quality"
+  * all_buy : EVERY BUY stock, equal amount each, Rs 2 crore per model (CAPITAL_BY_MODE) so that even ~950 BUY stocks get
+              >= ~Rs 21,000 each -> whole shares, and Groww's fixed charges (Rs 5 min brokerage, Rs 15.93 DP) stay small
 Benchmarks: NIFTY 50 and an equal-weight basket of all liquid stocks (both from the same first open, no charges).
 
     python3 -m ml_lab.virtual_portfolio
@@ -29,6 +28,7 @@ from ml_lab.stocks_bhs import LAKE, ROOT, order_cost, slippage
 
 START_SIGNAL = "2026-11-11"
 CAPITAL, SLOTS, REBAL_DAYS = 100_000.0, 10, 21
+CAPITAL_BY_MODE = {"top10": 100_000.0, "all_buy": 20_000_000.0}   # all-BUY: Rs 2 crore -> >= ~Rs 21k per stock, whole shares
 FAMILY = {"logistic": "ML", "knn": "ML", "random_forest": "ML", "extra_trees": "ML", "hist_gb": "ML", "xgboost": "ML",
           "lightgbm": "ML", "catboost": "ML", "mlp": "DL", "lstm": "DL", "gru": "DL", "cnn": "DL", "transformer": "DL",
           "ensemble": "ML+DL"}
@@ -64,9 +64,11 @@ def _next_rebalance(first: pd.Timestamp, done: int) -> str | None:
 
 def _run_model(m, mode, days, rebal, snap_before, O, C, names) -> dict:
     """mode 'top10': top-10 BUY, whole shares.  mode 'all_buy': every BUY stock, equal amount each, fractional shares."""
-    cash, hold, trades, charges = CAPITAL, {}, [], 0.0           # hold: sym -> {qty, cost, buy_price, ...}
-    gross_cash = CAPITAL                                         # same trades, but no charges / slippage
+    cap = CAPITAL_BY_MODE[mode]
+    cash, hold, trades, charges = cap, {}, [], 0.0               # hold: sym -> {qty, cost, buy_price, ...}
+    gross_cash = cap                                         # same trades, but no charges / slippage
     curve, gcurve = [], []
+    skipped = 0
     for t in days:
         if t in rebal:
             sd, s = snap_before(t)
@@ -95,11 +97,9 @@ def _run_model(m, mode, days, rebal, snap_before, O, C, names) -> dict:
                     p = float(O.loc[t][r.sym])
                     sl = slippage(r.tv)
                     budget = min(eq / max(slots, 1), cash)
-                    if mode == "top10":
-                        q = int(budget // (p * (1 + sl) * 1.003))
-                    else:                                        # fractional: leave room for this order's charges
-                        q = round(max(budget - order_cost(budget, "buy", sl), 0) / p, 4)
+                    q = int(budget // (p * (1 + sl) * 1.003))                    # whole shares (a stock priced above the budget is skipped)
                     if q <= 0:
+                        skipped += 1
                         continue
                     val = q * p
                     c = order_cost(val, "buy", sl)
@@ -125,9 +125,10 @@ def _run_model(m, mode, days, rebal, snap_before, O, C, names) -> dict:
     sell_cost = sum(order_cost(h["qty"] * h["last"], "sell", 0.002) for h in hold.values())
     value, gvalue = curve[-1]["value"], gcurve[-1]["value"]
     return {"model": m, "family": FAMILY.get(m, ""), "mode": mode, "value": round(value),
-            "return_pct": round((value / CAPITAL - 1) * 100, 2), "gross_return_pct": round((gvalue / CAPITAL - 1) * 100, 2),
-            "pnl": round(value - CAPITAL), "charges_paid": round(charges), "sell_charges_now": round(sell_cost),
-            "net_if_sold": round(value - sell_cost - CAPITAL), "net_if_sold_pct": round((value - sell_cost - CAPITAL) / CAPITAL * 100, 2),
+            "capital": cap, "return_pct": round((value / cap - 1) * 100, 2), "gross_return_pct": round((gvalue / cap - 1) * 100, 2),
+            "pnl": round(value - cap), "charges_paid": round(charges), "sell_charges_now": round(sell_cost),
+            "net_if_sold": round(value - sell_cost - cap), "net_if_sold_pct": round((value - sell_cost - cap) / cap * 100, 2),
+            "skipped_too_expensive": skipped,
             "cash": round(cash), "n_holdings": len(hold), "trades": len(trades),
             "holdings": [{"sym": k, "name": names.get(k, k), "qty": h["qty"], "buy_price": h["buy_price"], "last": round(h["last"], 2),
                           "value": round(h["qty"] * h["last"]), "pnl": round(h["qty"] * h["last"] - h["cost"]),
@@ -172,16 +173,22 @@ def simulate(start_signal: str = START_SIGNAL) -> dict:
     # benchmarks from the same first open
     t0 = days[0]
     n = pd.read_parquet(LAKE / "silver" / "yahoo" / "NIFTY.parquet").set_index("date")
-    nifty = [{"date": str(t.date()), "value": round(CAPITAL * float(n.close[t] / n.open[t0]), 2)} for t in days if t in n.index and t0 in n.index]
+    nifty_r = [(str(t.date()), float(n.close[t] / n.open[t0])) for t in days if t in n.index and t0 in n.index]
     uni = first.sym.tolist()
     r = (C.loc[days, C.columns.intersection(uni)].div(O.loc[t0, C.columns.intersection(uni)]) - 1)
     r = r.loc[:, r.iloc[-1].abs() < 0.6]
-    ew = [{"date": str(t.date()), "value": round(CAPITAL * (1 + float(r.loc[t].mean())), 2)} for t in days]
-    bench = {"nifty": {"name": "NIFTY 50", "curve": nifty, "return_pct": round((nifty[-1]["value"] / CAPITAL - 1) * 100, 2) if nifty else None},
-             "all": {"name": "All liquid stocks (equal weight)", "curve": ew, "return_pct": round((ew[-1]["value"] / CAPITAL - 1) * 100, 2)}}
+    ew_r = [(str(t.date()), 1 + float(r.loc[t].mean())) for t in days]
+
+    def bench_for(cap):
+        cv = lambda xs: [{"date": d_, "value": round(cap * x, 2)} for d_, x in xs]  # noqa: E731
+        return {"nifty": {"name": "NIFTY 50", "curve": cv(nifty_r), "return_pct": round((nifty_r[-1][1] - 1) * 100, 2) if nifty_r else None},
+                "all": {"name": "All liquid stocks (equal weight)", "curve": cv(ew_r), "return_pct": round((ew_r[-1][1] - 1) * 100, 2)}}
+    bench = bench_for(CAPITAL)
+    bench_by_mode = {k: bench_for(v) for k, v in CAPITAL_BY_MODE.items()}
     return {"state": "running", "start_signal": start_signal, "first_buy": str(t0.date()), "last_mark": str(last.date()),
             "days": len(days), "next_rebalance": _next_rebalance(days[0], len(days)),
-            "rebalance_every_days": REBAL_DAYS, "capital": CAPITAL, "slots": SLOTS,
+            "rebalance_every_days": REBAL_DAYS, "capital": CAPITAL, "capital_by_mode": CAPITAL_BY_MODE, "slots": SLOTS,
+            "benchmarks_by_mode": bench_by_mode,
             "models": out["top10"], "portfolios": out, "benchmarks": bench, "rules": __doc__}
 
 
