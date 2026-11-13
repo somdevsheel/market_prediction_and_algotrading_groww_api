@@ -21,7 +21,7 @@ import pandas as pd
 from ml_lab.stocks_bhs import LAKE, ROOT, order_cost, slippage
 
 TRIAL_ID = "2026-11"
-SIGNAL_DATE, START, END = "2026-11-13", "2026-11-16", "2026-12-16"
+SIGNAL_DATE, START, END = "2026-11-11", "2026-11-12", "2026-12-14"   # signals after the 11 Nov close -> first possible buy = 12 Nov open
 CAPITAL, SLOTS, MODEL = 100_000.0, 10, "xgboost"
 
 
