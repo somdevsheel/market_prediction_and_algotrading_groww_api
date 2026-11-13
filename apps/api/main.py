@@ -913,3 +913,22 @@ def stocks_refresh_start():
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     write_status(state="running", pid=p.pid, started=now(), finished=None, error=None, steps=[], step=0)
     return _clean(read_status())
+
+
+@app.get("/api/stocks/virtual")
+def stocks_virtual():
+    """Simulated Rs 1 lakh portfolio per ML/DL model from the saved daily signals (no real money)."""
+    from ml_lab.virtual_portfolio import START_SIGNAL, simulate
+
+    path = resolve_path(CFG, "data_lake") / "silver" / "yahoo_stocks" / "all_daily.parquet"
+    rd = _bhs_run()
+    hd = rd / "signals_history"
+    snaps = tuple(sorted(p.name for p in hd.glob("*.csv"))) if hd.exists() else ()
+    key = ("virtual", path.stat().st_mtime if path.exists() else 0, snaps)
+    if key not in _STOCK_CACHE:
+        for k in [k for k in _STOCK_CACHE if isinstance(k, tuple) and k and k[0] == "virtual"]:
+            _STOCK_CACHE.pop(k)
+        _STOCK_CACHE[key] = simulate(START_SIGNAL)
+    r = _STOCK_CACHE[key]
+    rep = json.loads((rd / "report.json").read_text()) if (rd / "report.json").exists() else {}
+    return _clean({**r, "chosen": rep.get("chosen_on_2013_2019")})

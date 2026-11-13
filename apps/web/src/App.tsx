@@ -11,6 +11,7 @@ import Research from "./pages/Research";
 import Stocks from "./pages/Stocks";
 import Strategy from "./pages/Strategy";
 import Trades from "./pages/Trades";
+import Virtual from "./pages/Virtual";
 
 const PAGES = [
   { id: "overview", label: "Overview", ic: "◎" },
@@ -21,6 +22,7 @@ const PAGES = [
   { id: "backtests", label: "Backtests", ic: "↺" },
   { id: "research", label: "Research", ic: "σ" },
   { id: "stocks", label: "Stocks ML", ic: "▲" },
+  { id: "virtual", label: "Virtual Portfolio", ic: "◇" },
   { id: "health", label: "Health", ic: "♥" },
 ] as const;
 type PageId = (typeof PAGES)[number]["id"];
@@ -83,6 +85,7 @@ export default function App() {
           {page === "backtests" && <Backtests theme={theme} />}
           {page === "research" && <Research theme={theme} />}
           {page === "stocks" && <Stocks theme={theme} />}
+          {page === "virtual" && <Virtual theme={theme} />}
           {page === "health" && <Health />}
         </div>
       </main>
