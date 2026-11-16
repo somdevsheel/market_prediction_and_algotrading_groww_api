@@ -1,4 +1,4 @@
-"""Deep-learning models (PyTorch, GPU if available): MLP, LSTM, GRU, Transformer over the last L days of features.
+"""Deep-learning models (PyTorch, CPU only - see DEV): MLP, LSTM, GRU, Transformer over the last L days of features.
 
 Leakage controls: the scaler is fitted on the training window only; early stopping uses the LAST 15% of the
 training window (chronological), never the test year; each sequence ends at the decision day t (features known
@@ -6,11 +6,17 @@ at 09:15 on t) and never includes later rows.
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import torch
 from torch import nn
 
-DEV = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# CPU ONLY: the machine's GPU fan is broken (2026-11-16), so the GPU must never be used.  Even if the NVIDIA driver
+# comes back, training stays on the CPU unless ML_ALLOW_GPU=1 is set explicitly (only after the fan is repaired).
+DEV = torch.device("cuda" if os.environ.get("ML_ALLOW_GPU") == "1" and torch.cuda.is_available() else "cpu")
+if DEV.type == "cpu":
+    torch.set_num_threads(max(1, (os.cpu_count() or 4) - 2))   # leave 2 cores free for the dashboard / desktop
 
 
 class MLP(nn.Module):
