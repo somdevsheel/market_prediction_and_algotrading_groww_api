@@ -9,7 +9,7 @@ const SIG_TONE: Record<string, "ok" | "bad" | ""> = { BUY: "ok", SELL: "bad", HO
 const ICON: Record<string, string> = { pending: "○", running: "◐", done: "✓", failed: "✕" };
 const signed = (v: unknown, d = 2) => <span className={tone(v)}>{typeof v === "number" ? `${v > 0 ? "+" : ""}${v.toFixed(d)}%` : "—"}</span>;
 
-/** One-click: new prices -> retrain the 13 models -> new BUY/HOLD/SELL -> new price forecasts. */
+/** One-click: new prices -> retrain the main model (XGBoost) -> new BUY/HOLD/SELL -> new price forecasts. */
 export function RefreshBar({ onDone }: { onDone: () => void }) {
   const [st, setSt] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -42,7 +42,7 @@ export function RefreshBar({ onDone }: { onDone: () => void }) {
   return (
     <Card title="Data & models" right={
       <button className="btn primary" disabled={running || busy} onClick={start}
-              title="Download the latest prices, retrain all 13 ML/DL models on all data, write new signals and price forecasts">
+              title="Download the latest prices, retrain the main model (XGBoost) on all data, write new signals and price forecasts">
         {running ? "Updating…" : "⟳ Update data & retrain"}
       </button>}>
       <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 13 }}>
@@ -67,9 +67,7 @@ export function RefreshBar({ onDone }: { onDone: () => void }) {
           <pre className="mono" style={{ fontSize: 11, maxHeight: 220, overflow: "auto", margin: "6px 0 0", whiteSpace: "pre-wrap" }}>{st.log_tail.join("\n")}</pre>
         </details>)}
       <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-        Run after market close (~3:45 PM IST or later). Takes about 10–15 min: index data → prices for all stocks → retrain the 13 ML/DL
-        models on all data → today's BUY/HOLD/SELL (saved as a dated snapshot) → price forecasts. Same as <span className="mono">python3 -m ml_lab.daily_refresh</span>.
-        The yearly walk-forward backtest is not re-run.
+        Run after market close (~3:45 PM IST or later). Takes a few minutes on the CPU (the GPU is not used): index data → prices for all stocks → retrain the main model (XGBoost) on all data → today's BUY/HOLD/SELL (saved as a dated snapshot) → price forecasts. Same as <span className="mono">python3 -m ml_lab.daily_refresh</span>. All 13 models: <span className="mono">python3 -m ml_lab.stocks_bhs --current-only --all-models</span> (slow on CPU). The yearly walk-forward backtest is not re-run.
       </div>
     </Card>
   );

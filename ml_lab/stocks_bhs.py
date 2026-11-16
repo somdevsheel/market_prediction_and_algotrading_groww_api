@@ -17,7 +17,8 @@ Backtest   Rs 1,00,000, max 10 stocks, equal rupees, whole shares.
 Selection  models are ranked on 2013-2019 only; 2020-2026 is a hold-out.
 
     python3 -m ml_lab.stocks_bhs                  # full walk-forward + backtest + today's signals (~40 min)
-    python3 -m ml_lab.stocks_bhs --current-only   # only refresh today's signals for every model (~5 min)
+    python3 -m ml_lab.stocks_bhs --current-only   # refresh today's signals, main model (XGBoost) only (~1-2 min, CPU)
+    python3 -m ml_lab.stocks_bhs --current-only --all-models   # ... all 13 models + ensemble (slow on CPU)
 """
 from __future__ import annotations
 
@@ -261,11 +262,14 @@ MODELS = list(CLASSIC) + DEEP + ["ensemble"]
 FAMILY = {**{m: "ML" for m in CLASSIC}, **{m: "DL" for m in DEEP}, "ensemble": "ML+DL"}
 
 
-def predict(L, feats, seq, tr, te, log=None):
+def predict(L, feats, seq, tr, te, log=None, only=None):
+    """only: list of model names to train (None = all 13 + ensemble; the ensemble needs all of them)."""
     Xtr, ytr = L.loc[tr, feats].to_numpy(np.float32), L.loc[tr, "y"].to_numpy()
     Xte = L.loc[te, feats].to_numpy(np.float32)
     probs = {}
     for name, make in CLASSIC.items():
+        if only is not None and name not in only:
+            continue
         X1, X2 = (Xtr, Xte)
         if name in ("logistic", "knn"):                       # scale-sensitive models
             mu, sd = Xtr.mean(0), Xtr.std(0) + 1e-6
@@ -275,10 +279,13 @@ def predict(L, feats, seq, tr, te, log=None):
         if log:
             log(name)
     for k in DEEP:
+        if only is not None and k not in only:
+            continue
         probs[k] = np.mean([fit_deep(k, Xtr, seq[tr], ytr, Xte, seq[te], s) for s in (0, 1)], axis=0)
         if log:
             log(k)
-    probs["ensemble"] = np.mean([probs[m] for m in MODELS if m != "ensemble"], axis=0)
+    if only is None:
+        probs["ensemble"] = np.mean([probs[m] for m in MODELS if m != "ensemble"], axis=0)
     return probs
 
 
@@ -332,14 +339,14 @@ def perf(eq: pd.Series, start=CAPITAL) -> dict:
             "sharpe": round(float(r.mean() / r.std() * np.sqrt(12)), 2) if r.std() > 0 else 0.0}
 
 
-def current_signals(L, feats, seq, out: Path, sort_by: str = "xgboost") -> pd.DataFrame:
-    """Train every model on all months with a finished holding period; signal for the latest date (all models)."""
+def current_signals(L, feats, seq, out: Path, sort_by: str = "xgboost", only=None) -> pd.DataFrame:
+    """Train the models (all, or only `only`) on all months with a finished holding period; signal for the latest date."""
     last = L.date.max()
     tr = np.where((L.y >= 0) & L.exit.notna())[0]
     te = np.where(L.date == last)[0]
-    pr = predict(L, feats, seq, tr, te)
+    pr = predict(L, feats, seq, tr, te, only=only)
     cur = L.loc[te, ["sym", "tv"]].copy()
-    for m in MODELS:
+    for m in [m for m in MODELS if m in pr]:
         cur[f"{m}_signal"] = [CLASSES[i] for i in pr[m].argmax(1)]
         cur[f"{m}_p_buy"], cur[f"{m}_p_sell"] = pr[m][:, 2].round(3), pr[m][:, 0].round(3)
     cur = cur.sort_values(f"{sort_by}_p_buy", ascending=False)
@@ -347,8 +354,11 @@ def current_signals(L, feats, seq, out: Path, sort_by: str = "xgboost") -> pd.Da
     return cur
 
 
-def main_current_only() -> int:
-    """Refresh today's signals for all models into the latest run folder (no walk-forward; ~5 min)."""
+def main_current_only(all_models: bool = False) -> int:
+    """Refresh today's signals into the latest run folder (no walk-forward).
+    Default: ONLY the main model (the one chosen on 2013-2019, XGBoost) - its predictions are the ones used, and it
+    trains in about a minute on the CPU (the GPU is not used: broken fan).  --all-models retrains all 13 + ensemble
+    (slow on CPU because of the four sequence models)."""
     runs = sorted(p for p in (ROOT / "results").glob("bhs_*") if (p / "report.json").exists())
     if not runs:
         print("no previous run; use: python3 -m ml_lab.stocks_bhs")
@@ -356,13 +366,15 @@ def main_current_only() -> int:
     rep = json.loads((runs[-1] / "report.json").read_text())
     P, jump, nifty = load_panels()
     L, feats, seq = build(P, jump, nifty)
-    cur = current_signals(L, feats, seq, runs[-1], rep.get("chosen_on_2013_2019", "xgboost"))
+    chosen = rep.get("chosen_on_2013_2019", "xgboost")
+    cur = current_signals(L, feats, seq, runs[-1], chosen, only=None if all_models else [chosen])
     rep["signals_as_of"] = str(L.date.max().date())
     (runs[-1] / "report.json").write_text(json.dumps(rep, indent=1, default=str))
     hist = runs[-1] / "signals_history"                       # dated snapshot -> later checked against real prices
     hist.mkdir(exist_ok=True)
     cur.to_csv(hist / f"{rep['signals_as_of']}.csv", index=False)
-    print(f"current signals for {len(cur)} stocks, {len(MODELS)} models, as of {rep['signals_as_of']} -> {runs[-1]}")
+    trained = [c[: -len("_signal")] for c in cur.columns if c.endswith("_signal")]
+    print(f"current signals for {len(cur)} stocks, models {trained}, as of {rep['signals_as_of']} -> {runs[-1]}")
     return 0
 
 
@@ -462,4 +474,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     import sys
-    raise SystemExit(main_current_only() if "--current-only" in sys.argv else main())
+    raise SystemExit(main_current_only("--all-models" in sys.argv) if "--current-only" in sys.argv else main())
