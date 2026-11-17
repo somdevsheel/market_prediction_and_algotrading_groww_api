@@ -1,4 +1,4 @@
-"""Deep-learning models (PyTorch, CPU only - see DEV): MLP, LSTM, GRU, Transformer over the last L days of features.
+"""Deep-learning models (PyTorch, GPU with a temperature guard - see DEV): MLP, LSTM, GRU, Transformer over the last L days of features.
 
 Leakage controls: the scaler is fitted on the training window only; early stopping uses the LAST 15% of the
 training window (chronological), never the test year; each sequence ends at the decision day t (features known
@@ -12,9 +12,33 @@ import numpy as np
 import torch
 from torch import nn
 
-# CPU ONLY: the machine's GPU fan is broken (2026-11-16), so the GPU must never be used.  Even if the NVIDIA driver
-# comes back, training stays on the CPU unless ML_ALLOW_GPU=1 is set explicitly (only after the fan is repaired).
-DEV = torch.device("cuda" if os.environ.get("ML_ALLOW_GPU") == "1" and torch.cuda.is_available() else "cpu")
+GPU_MAX_TEMP_C = 83          # the GPU fan was broken once (fixed 2026-11-17): never start GPU training on a hot GPU
+
+
+def _gpu_temp_c() -> float | None:
+    """Current GPU temperature from nvidia-smi (None if it cannot be read)."""
+    try:
+        import subprocess
+
+        out = subprocess.run(["nvidia-smi", "--query-gpu=temperature.gpu", "--format=csv,noheader,nounits"],
+                             capture_output=True, text=True, timeout=10).stdout.strip().splitlines()
+        return float(out[0]) if out else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _pick_device() -> torch.device:
+    """GPU when available, unless ML_FORCE_CPU=1, or the GPU is already >= GPU_MAX_TEMP_C (or its temperature is unreadable)."""
+    if os.environ.get("ML_FORCE_CPU") == "1" or not torch.cuda.is_available():
+        return torch.device("cpu")
+    t = _gpu_temp_c()
+    if t is None or t >= GPU_MAX_TEMP_C:
+        print(f"GPU temperature {t} C - using the CPU instead (limit {GPU_MAX_TEMP_C} C)", flush=True)
+        return torch.device("cpu")
+    return torch.device("cuda")
+
+
+DEV = _pick_device()
 if DEV.type == "cpu":
     torch.set_num_threads(max(1, (os.cpu_count() or 4) - 2))   # leave 2 cores free for the dashboard / desktop
 
