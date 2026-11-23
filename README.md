@@ -57,3 +57,18 @@ See `docs/PROJECT_STATUS.md` for what is done, what is not, and `docs/KNOWN_LIMI
 `apps/web/` is a React 18 + TypeScript + Vite app (TradingView Lightweight Charts). For live-reload development run
 the API on :8100 and `cd apps/web && npm run dev` (http://localhost:5173, proxies `/api` to :8100). `npm run build`
 writes `apps/web/dist/`, which FastAPI serves at `/` (the old single-file dashboard remains only as a fallback).
+
+
+
+To see it on the dashboard: the server on port 8010 isn't running now. Start it with:
+
+
+python3 -m uvicorn apps.api.main:app --host 127.0.0.1 --port 8010
+Then open http://127.0.0.1:8010/#stocks.
+
+Updating daily: after the market closes, run:
+
+
+python3 -m ml_lab.data.all_stocks update
+python3 -m ml_lab.stocks_bhs --current-only
+python3 -m ml_lab.stock_price_forecast

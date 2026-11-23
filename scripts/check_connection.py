@@ -31,7 +31,10 @@ def main() -> int:
               f"({left:.1f} h left)")
         if datetime.fromtimestamp(exp, IST).date() < nxt or (datetime.fromtimestamp(exp, IST).date() == nxt and
                                                               datetime.fromtimestamp(exp, IST).time() < cal.close):
-            print("       -> token will NOT cover the next session. Refresh it that morning or set up TOTP (.env.example).")
+            if get_secret("GROWW_API_KEY") and (get_secret("GROWW_TOTP_SECRET") or get_secret("GROWW_API_SECRET")):
+                print("       -> expires before the next session; a new token is generated automatically (API key + TOTP).")
+            else:
+                print("       -> token will NOT cover the next session. Refresh it that morning or set up TOTP (.env.example).")
     if not get_secret("GROWW_TOTP_SECRET") and not get_secret("GROWW_API_SECRET"):
         print("[WARN] no TOTP/secret configured; you must paste a fresh access token every morning")
     p = GrowwProvider(cfg["settings"], token=tok)
